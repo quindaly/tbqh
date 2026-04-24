@@ -1,0 +1,12 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://example.com/schemas/rewording.json",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+   "should_reword": { "type": "boolean" },
+   "reworded_question": { "type": ["string", "null"], "maxLength": 220 },
+   "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+ },
+ "required": ["should_reword", "reworded_question", "reason"]
+}

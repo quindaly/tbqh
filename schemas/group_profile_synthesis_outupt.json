@@ -1,0 +1,49 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://example.com/schemas/group_profile_synthesis.json",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+   "summary": { "type": "string", "minLength": 1, "maxLength": 800 },
+   "key_traits": {
+     "type": "array",
+     "minItems": 3,
+     "maxItems": 12,
+     "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+   },
+   "topics_of_interest": {
+     "type": "array",
+     "minItems": 3,
+     "maxItems": 20,
+     "items": { "type": "string", "minLength": 1, "maxLength": 40 }
+   },
+   "constraints": {
+     "type": "array",
+     "minItems": 0,
+     "maxItems": 10,
+     "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+   },
+   "vibe": {
+     "type": "string",
+     "enum": ["playful", "reflective", "balanced", "high_energy", "calm", "unknown"]
+   },
+   "depth": { "type": "integer", "minimum": 1, "maximum": 5 },
+   "audience_context": {
+     "type": "string",
+     "enum": ["friends", "coworkers", "family", "couples", "strangers", "mixed", "unknown"]
+   },
+   "language": { "type": "string", "minLength": 2, "maxLength": 16 },
+   "safety_policy_name": { "type": "string", "minLength": 1, "maxLength": 64 }
+ },
+ "required": [
+   "summary",
+   "key_traits",
+   "topics_of_interest",
+   "constraints",
+   "vibe",
+   "depth",
+   "audience_context",
+   "language",
+   "safety_policy_name"
+ ]
+}

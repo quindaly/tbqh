@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: app_db
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/docker/api.Dockerfile
+    container_name: app_api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      API_BASE_URL: http://localhost:8000
+      WEB_BASE_URL: http://localhost:3000
+
+      # LLM/Embeddings provider env vars
+      LLM_PROVIDER: openai_compatible
+      LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
+
+      # Email (magic link). For local dev, agent can log link to console.
+      EMAIL_PROVIDER: console
+      EMAIL_FROM: "no-reply@example.com"
+
+      # Security
+      COOKIE_SECRET: "dev-secret-change-me"
+
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/web.Dockerfile
+    container_name: app_web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  dbdata:

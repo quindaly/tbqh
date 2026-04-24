@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/intake_extraction.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "group_summary": { "type": "string", "minLength": 1, "maxLength": 600 },
+    "audience_context": {
+      "type": "string",
+      "enum": ["friends", "coworkers", "family", "couples", "strangers", "mixed", "unknown"]
+    },
+    "desired_vibe": {
+      "type": "string",
+      "enum": ["playful", "reflective", "balanced", "high_energy", "calm", "unknown"]
+    },
+    "depth_preference": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "language": { "type": "string", "minLength": 2, "maxLength": 16 },
+    "followup_needed": { "type": "boolean" },
+    "followup_question_specs": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/followupSpec" }
+    }
+  },
+  "required": [
+    "group_summary",
+    "audience_context",
+    "desired_vibe",
+    "depth_preference",
+    "language",
+    "followup_needed",
+    "followup_question_specs"
+  ],
+  "$defs": {
+    "followupSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt_text": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "options": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 60 }
+        },
+        "allow_other": { "type": "boolean" },
+        "answer_type": { "type": "string", "enum": ["single_select"] },
+        "why_needed": { "type": "string", "minLength": 1, "maxLength": 240 }
+      },
+      "required": ["prompt_text", "options", "allow_other", "answer_type", "why_needed"]
+    }
+  }
+}

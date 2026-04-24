@@ -1,0 +1,591 @@
+openapi: 3.0.3
+info:
+  title: Group Connection App API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8000/api/v1
+
+tags:
+  - name: auth
+  - name: groups
+  - name: sessions
+  - name: intake
+  - name: profiles
+  - name: experiences
+  - name: content
+  - name: users
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+      required: [error]
+
+    UUID:
+      type: string
+      format: uuid
+
+    PolicyProfile:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        name: { type: string }
+        excluded_categories:
+          type: array
+          items: { type: string }
+      required: [id, name, excluded_categories]
+
+    UserMe:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        email: { type: string, format: email }
+      required: [id, email]
+
+    CreateGroupRequest:
+      type: object
+      properties:
+        name: { type: string, nullable: true }
+      required: []
+
+    CreateGroupResponse:
+      type: object
+      properties:
+        group_id: { $ref: '#/components/schemas/UUID' }
+        host_participant_id: { $ref: '#/components/schemas/UUID' }
+      required: [group_id, host_participant_id]
+
+    CreateSessionRequest:
+      type: object
+      properties:
+        group_id: { $ref: '#/components/schemas/UUID' }
+        policy_profile_id: { $ref: '#/components/schemas/UUID' }
+      required: [group_id, policy_profile_id]
+
+    CreateSessionResponse:
+      type: object
+      properties:
+        session_id: { $ref: '#/components/schemas/UUID' }
+        join_code: { type: string }
+      required: [session_id, join_code]
+
+    JoinSessionRequest:
+      type: object
+      properties:
+        join_code: { type: string }
+        display_name: { type: string }
+        join_mode:
+          type: string
+          enum: [anonymous, authenticated]
+      required: [join_code, display_name, join_mode]
+
+    JoinSessionResponse:
+      type: object
+      properties:
+        participant_id: { $ref: '#/components/schemas/UUID' }
+        session_id: { $ref: '#/components/schemas/UUID' }
+        group_id: { $ref: '#/components/schemas/UUID' }
+      required: [participant_id, session_id, group_id]
+
+    SessionView:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        group_id: { $ref: '#/components/schemas/UUID' }
+        policy_profile: { $ref: '#/components/schemas/PolicyProfile' }
+        status: { type: string, enum: [active, ended] }
+        participants:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { $ref: '#/components/schemas/UUID' }
+              user_id: { $ref: '#/components/schemas/UUID', nullable: true }
+              display_name: { type: string }
+              role: { type: string, enum: [host, guest] }
+              join_type: { type: string, enum: [authenticated, anonymous] }
+            required: [id, display_name, role, join_type]
+      required: [id, group_id, policy_profile, status, participants]
+
+    SubmitGroupTextRequest:
+      type: object
+      properties:
+        text: { type: string }
+        participant_id: { $ref: '#/components/schemas/UUID' }
+      required: [text, participant_id]
+
+    SubmitGroupTextResponse:
+      type: object
+      properties:
+        provisional_group_profile_id: { $ref: '#/components/schemas/UUID' }
+        followups_created: { type: integer }
+      required: [provisional_group_profile_id, followups_created]
+
+    PromptInstance:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        prompt_type: { type: string }
+        prompt_text: { type: string }
+        options:
+          type: array
+          items: { type: string }
+        allow_other: { type: boolean }
+      required: [id, prompt_type, prompt_text, options, allow_other]
+
+    ListFollowupsResponse:
+      type: object
+      properties:
+        prompts:
+          type: array
+          items: { $ref: '#/components/schemas/PromptInstance' }
+      required: [prompts]
+
+    AnswerFollowupRequest:
+      type: object
+      properties:
+        prompt_instance_id: { $ref: '#/components/schemas/UUID' }
+        participant_id: { $ref: '#/components/schemas/UUID' }
+        selected_option: { type: string, nullable: true }
+        other_text: { type: string, nullable: true }
+      required: [prompt_instance_id, participant_id]
+
+    CommitGroupProfileRequest:
+      type: object
+      properties:
+        provisional_group_profile_id: { $ref: '#/components/schemas/UUID' }
+      required: [provisional_group_profile_id]
+
+    CommitGroupProfileResponse:
+      type: object
+      properties:
+        group_profile_id: { $ref: '#/components/schemas/UUID' }
+        version: { type: integer }
+      required: [group_profile_id, version]
+
+    CreateExperienceRequest:
+      type: object
+      properties:
+        group_profile_id: { $ref: '#/components/schemas/UUID' }
+        experience_type:
+          type: string
+          enum: [discussion_recs, personal_trivia]
+        config:
+          type: object
+          additionalProperties: true
+      required: [group_profile_id, experience_type]
+
+    CreateExperienceResponse:
+      type: object
+      properties:
+        experience_instance_id: { $ref: '#/components/schemas/UUID' }
+      required: [experience_instance_id]
+
+    ContentItemView:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/UUID' }
+        content_type: { type: string }
+        text: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [id, content_type, text, metadata]
+
+    GenerateRecommendationsRequest:
+      type: object
+      properties:
+        batch_size: { type: integer, default: 10 }
+        config_overrides:
+          type: object
+          additionalProperties: true
+      required: []
+
+    GenerateRecommendationsResponse:
+      type: object
+      properties:
+        content_items:
+          type: array
+          items: { $ref: '#/components/schemas/ContentItemView' }
+      required: [content_items]
+
+    FeedbackRequest:
+      type: object
+      properties:
+        experience_instance_id: { $ref: '#/components/schemas/UUID' }
+        participant_id: { $ref: '#/components/schemas/UUID' }
+        feedback:
+          type: string
+          enum: [like, dislike, skip]
+      required: [experience_instance_id, participant_id, feedback]
+
+    FavoritesResponse:
+      type: object
+      properties:
+        question_items:
+          type: array
+          items:
+            type: object
+            properties:
+              question_item_id: { $ref: '#/components/schemas/UUID' }
+              question_text: { type: string }
+              liked_at: { type: string, format: date-time }
+            required: [question_item_id, question_text, liked_at]
+      required: [question_items]
+
+    BlockedResponse:
+      type: object
+      properties:
+        question_items:
+          type: array
+          items:
+            type: object
+            properties:
+              question_item_id: { $ref: '#/components/schemas/UUID' }
+              question_text: { type: string }
+              blocked_at: { type: string, format: date-time }
+            required: [question_item_id, question_text, blocked_at]
+      required: [question_items]
+
+security:
+  - cookieAuth: []
+
+paths:
+  /auth/magic-link:
+    post:
+      tags: [auth]
+      security: []
+      summary: Request a magic link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+              required: [email]
+      responses:
+        '200':
+          description: Magic link sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+        '400':
+          description: Error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/callback:
+    get:
+      tags: [auth]
+      security: []
+      summary: Consume magic link token and set auth cookie
+      parameters:
+        - in: query
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect to app
+        '400':
+          description: Invalid token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get current user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserMe' }
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /groups:
+    post:
+      tags: [groups]
+      summary: Create a group (host is current user)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateGroupRequest' }
+      responses:
+        '200':
+          description: Group created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateGroupResponse' }
+
+  /sessions:
+    post:
+      tags: [sessions]
+      summary: Create a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSessionRequest' }
+      responses:
+        '200':
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateSessionResponse' }
+
+  /sessions/{session_id}:
+    get:
+      tags: [sessions]
+      summary: Get session details
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200':
+          description: Session view
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionView' }
+
+  /sessions/{session_id}/join:
+    post:
+      tags: [sessions]
+      security: []
+      summary: Join a session (anonymous or authenticated)
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JoinSessionRequest' }
+      responses:
+        '200':
+          description: Joined
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JoinSessionResponse' }
+
+  /sessions/{session_id}/group-text:
+    post:
+      tags: [intake]
+      summary: Submit group free-text description (host initiates intake)
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitGroupTextRequest' }
+      responses:
+        '200':
+          description: Provisional group profile created and follow-ups generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmitGroupTextResponse' }
+
+  /sessions/{session_id}/followups:
+    get:
+      tags: [intake]
+      summary: List follow-up prompts for the session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200':
+          description: Follow-ups
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListFollowupsResponse' }
+
+  /sessions/{session_id}/followups/answer:
+    post:
+      tags: [intake]
+      summary: Answer a follow-up prompt
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnswerFollowupRequest' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /sessions/{session_id}/group-profile/commit:
+    post:
+      tags: [profiles]
+      summary: Finalize group profile (derive attributes + compute embedding)
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommitGroupProfileRequest' }
+      responses:
+        '200':
+          description: Group profile committed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommitGroupProfileResponse' }
+
+  /sessions/{session_id}/experiences:
+    post:
+      tags: [experiences]
+      summary: Create an experience instance
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateExperienceRequest' }
+      responses:
+        '200':
+          description: Experience created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateExperienceResponse' }
+
+  /experiences/{experience_id}/recommendations:
+    post:
+      tags: [experiences]
+      summary: Generate first batch of recommendations for an experience
+      parameters:
+        - in: path
+          name: experience_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateRecommendationsRequest' }
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerateRecommendationsResponse' }
+
+  /experiences/{experience_id}/more:
+    post:
+      tags: [experiences]
+      summary: Generate next batch of recommendations (Get 10 more)
+      parameters:
+        - in: path
+          name: experience_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateRecommendationsRequest' }
+      responses:
+        '200':
+          description: Next batch
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerateRecommendationsResponse' }
+
+  /content/{content_item_id}/feedback:
+    post:
+      tags: [content]
+      summary: Submit feedback on a content item (like/dislike/skip)
+      parameters:
+        - in: path
+          name: content_item_id
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FeedbackRequest' }
+      responses:
+        '200':
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /users/me/favorites:
+    get:
+      tags: [users]
+      summary: List my liked questions
+      responses:
+        '200':
+          description: Favorites
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoritesResponse' }
+
+  /users/me/blocked:
+    get:
+      tags: [users]
+      summary: List my blocked questions
+      responses:
+        '200':
+          description: Blocked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockedResponse' }
