@@ -41,6 +41,16 @@ export async function logout() {
   return apiFetch<{ ok: boolean }>("/auth/logout", { method: "POST" });
 }
 
+export async function createGuestSession() {
+  return apiFetch<{
+    user_id: string;
+    group_id: string;
+    session_id: string;
+    participant_id: string;
+    join_code: string;
+  }>("/auth/guest", { method: "POST" });
+}
+
 // ---- Groups ----
 
 export async function createGroup(name?: string) {

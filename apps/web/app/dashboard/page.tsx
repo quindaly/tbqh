@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const isGuest = user?.email?.endsWith("@guest.local");
 
   useEffect(() => {
     getMe()
@@ -57,10 +58,20 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">Welcome back, {user?.email}</h1>
+        <h1 className="text-2xl font-bold">
+          {isGuest ? "Welcome, Guest" : `Welcome back, ${user?.email}`}
+        </h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">
           Start a new discussion session or join an existing one.
         </p>
+        {isGuest && (
+          <p className="text-sm text-blue-600 mt-2">
+            <a href="/login" className="hover:underline font-medium">
+              Sign in with email
+            </a>{" "}
+            to save favorites and build a profile.
+          </p>
+        )}
       </div>
 
       {error && (
