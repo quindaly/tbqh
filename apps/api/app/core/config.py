@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # SSL verification (set to false for corporate proxies doing SSL inspection)
-    SSL_VERIFY: bool = False
+    SSL_VERIFY: bool = True
 
     # Recommendation defaults
     DEFAULT_BATCH_SIZE: int = 10
