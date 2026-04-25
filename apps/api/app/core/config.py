@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     MAGIC_LINK_MAX_AGE: int = 600  # 10 minutes
     SESSION_COOKIE_NAME: str = "session"
 
+    # Server
+    PORT: int = 8000
+
     # SSL verification (set to false for corporate proxies doing SSL inspection)
     SSL_VERIFY: bool = False
 

@@ -7,5 +7,8 @@ RUN npm install
 
 COPY apps/web /app
 
+# Build for production (standalone output mode is already set in next.config.js)
+RUN npm run build
+
 EXPOSE 3000
-CMD ["npx", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+CMD ["npm", "run", "start"]

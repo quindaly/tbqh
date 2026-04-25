@@ -20,6 +20,6 @@ COPY schemas /schemas
 # Copy scripts
 COPY scripts /scripts
 
-# Default command
+# Default command – $PORT is set by Railway; fallback to 8000 for local dev
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
