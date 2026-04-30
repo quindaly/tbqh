@@ -51,7 +51,15 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 
 # CORS – build allowed origins from config; always include localhost for dev
-_origins = list({settings.WEB_BASE_URL, "http://localhost:3000"})
+_origins = list(
+    {
+        settings.WEB_BASE_URL,
+        "http://localhost:3000",
+        "https://tbqh.app",
+        "https://www.tbqh.app",
+        "https://tbqh.vercel.app",
+    }
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
