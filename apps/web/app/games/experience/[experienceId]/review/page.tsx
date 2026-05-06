@@ -33,6 +33,7 @@ export default function ReviewPage() {
   const [editingChoiceId, setEditingChoiceId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [regenCounts, setRegenCounts] = useState<Record<string, number>>({});
 
   const participantId =
     typeof window !== "undefined"
@@ -69,8 +70,15 @@ export default function ReviewPage() {
   async function handleRegenerate(choiceId: string) {
     try {
       const res = await regenerateChoice(experienceId, choiceId, participantId);
+      setRegenCounts((prev) => ({
+        ...prev,
+        [choiceId]: (prev[choiceId] || 0) + 1,
+      }));
       await loadData();
     } catch (e: any) {
+      if (e.message?.includes("Limit of 3")) {
+        setRegenCounts((prev) => ({ ...prev, [choiceId]: 3 }));
+      }
       setError(e.message);
     }
   }
@@ -80,7 +88,7 @@ export default function ReviewPage() {
     setError("");
     try {
       await confirmChoices(experienceId, participantId);
-      router.push(`/games/experience/${experienceId}/lobby`);
+      router.push(`/games/experience/${experienceId}/hwdyk-lobby`);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -169,13 +177,22 @@ export default function ReviewPage() {
                     >
                       ✏️
                     </button>
-                    <button
-                      onClick={() => handleRegenerate(choice.id)}
-                      className="text-xs text-gray-500 hover:text-purple-600"
-                      title="Regenerate"
-                    >
-                      🔄
-                    </button>
+                    {(regenCounts[choice.id] || 0) >= 3 ? (
+                      <span
+                        className="text-xs text-gray-300 cursor-not-allowed"
+                        title="Limit of 3 AI regenerations per answer"
+                      >
+                        🔄
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleRegenerate(choice.id)}
+                        className="text-xs text-gray-500 hover:text-purple-600"
+                        title={`Regenerate (${3 - (regenCounts[choice.id] || 0)} left)`}
+                      >
+                        🔄
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

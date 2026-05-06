@@ -144,7 +144,9 @@ def create_game(
     db.add(experience)
     db.flush()
 
-    share_url = generate_share_url(experience.id, join_code)
+    share_url = generate_share_url(
+        experience.id, join_code, game_slug="how-well-do-you-know"
+    )
 
     log_event(
         db,
@@ -191,7 +193,14 @@ def join_game(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Game not found"
         )
-    if experience.game_state != "lobby":
+    if experience.game_state not in (
+        "lobby",
+        "main_person_answering",
+        "ai_generating_choices",
+        "main_person_reviewing_choices",
+        "players_submitting_fake_answers",
+        "ready_to_start",
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Game has already started — cannot join",
@@ -242,7 +251,9 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
         "game_slug": "how-well-do-you-know",
         "mode": config.get("mode", "default"),
         "join_code": session.join_code,
-        "share_url": generate_share_url(experience.id, session.join_code),
+        "share_url": generate_share_url(
+            experience.id, session.join_code, game_slug="how-well-do-you-know"
+        ),
         "host_id": str(host.id) if host else None,
         "main_person_participant_id": (
             str(experience.main_person_participant_id)
@@ -616,6 +627,18 @@ def regenerate_choice(
             detail="Cannot regenerate the correct answer",
         )
 
+    # Track regeneration count per choice in game_config
+    config = experience.game_config or DEFAULT_GAME_CONFIG
+    regen_counts = config.get("regenerate_counts", {})
+    choice_key = str(choice_id)
+    current_count = regen_counts.get(choice_key, 0)
+
+    if current_count >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limit of 3 AI regenerations per answer reached",
+        )
+
     game_round = db.get(GameRound, choice.game_round_id)
     correct_choice = (
         db.query(GameChoice)
@@ -626,7 +649,6 @@ def regenerate_choice(
         .first()
     )
 
-    config = experience.game_config or DEFAULT_GAME_CONFIG
     intimacy = config.get("intimacy_level", "personal")
 
     # Get existing wrong answers to avoid duplicates
@@ -640,6 +662,8 @@ def regenerate_choice(
         .all()
     )
     existing_texts = [c.choice_text for c in existing_wrong]
+    # Also include the current text so we don't get it again
+    existing_texts.append(choice.choice_text)
 
     schema = distractor_generation_schema()
     try:
@@ -656,18 +680,34 @@ def regenerate_choice(
             temperature=0.9,
         )
         new_answers = result.get("wrong_answers", [])
-        new_text = new_answers[0] if new_answers else "Alternative answer"
+        new_text = new_answers[0] if new_answers else None
     except Exception:
         logger.exception("Failed to regenerate distractor")
-        new_text = "Alternative answer"
+        new_text = None
+
+    if not new_text:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate a new answer — please try again",
+        )
 
     choice.original_ai_text = choice.choice_text
     choice.choice_text = new_text.strip()
     choice.source_type = "ai_generated"
+
+    # Increment count
+    regen_counts[choice_key] = current_count + 1
+    updated_config = dict(config)
+    updated_config["regenerate_counts"] = regen_counts
+    experience.game_config = updated_config
+
     db.flush()
     db.commit()
 
-    return {"new_text": choice.choice_text}
+    return {
+        "new_text": choice.choice_text,
+        "regenerations_remaining": 3 - (current_count + 1),
+    }
 
 
 def confirm_choices(
@@ -1467,7 +1507,9 @@ def replay_game(db: Session, experience: ExperienceInstance) -> dict:
     db.add(new_exp)
     db.flush()
 
-    share_url = generate_share_url(new_exp.id, join_code)
+    share_url = generate_share_url(
+        new_exp.id, join_code, game_slug="how-well-do-you-know"
+    )
     db.commit()
 
     return {

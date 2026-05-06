@@ -16,7 +16,11 @@ def generate_join_code() -> str:
     return secrets.token_hex(3).upper()  # e.g. "A3F1B2"
 
 
-def generate_share_url(experience_instance_id: uuid.UUID, join_code: str) -> str:
+def generate_share_url(
+    experience_instance_id: uuid.UUID, join_code: str, game_slug: str = "who-knows-who"
+) -> str:
+    if game_slug == "how-well-do-you-know":
+        return f"{settings.WEB_BASE_URL}/games/how-well-do-you-know?code={join_code}"
     return f"{settings.WEB_BASE_URL}/games/experience/{experience_instance_id}/lobby?code={join_code}"
 
 

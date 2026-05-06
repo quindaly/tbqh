@@ -109,11 +109,21 @@ export default function HWDYKLobbyPage() {
     }
   }
 
+  const [copiedLink, setCopiedLink] = useState(false);
+
   function copyCode() {
     if (lobby?.join_code) {
       navigator.clipboard.writeText(lobby.join_code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  function copyLink() {
+    if (lobby?.share_url) {
+      navigator.clipboard.writeText(lobby.share_url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
     }
   }
 
@@ -139,19 +149,29 @@ export default function HWDYKLobbyPage() {
         </div>
       </div>
 
-      {/* Join code */}
-      {lobby.game_state === "lobby" && (
+      {/* Join code & share link */}
+      {lobby.game_state !== "round_active" && lobby.game_state !== "round_reveal" && lobby.game_state !== "completed" && (
         <div className="rounded-xl border p-4 text-center space-y-2">
-          <p className="text-sm text-gray-500">Share this code to invite players</p>
+          <p className="text-sm text-gray-500">Share this code or link to invite players</p>
           <p className="text-3xl font-mono font-bold tracking-widest">
             {lobby.join_code}
           </p>
-          <button
-            onClick={copyCode}
-            className="text-sm text-purple-600 hover:underline"
-          >
-            {copied ? "Copied!" : "Copy code"}
-          </button>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={copyCode}
+              className="text-sm text-purple-600 hover:underline"
+            >
+              {copied ? "Copied!" : "Copy code"}
+            </button>
+            {lobby.share_url && (
+              <button
+                onClick={copyLink}
+                className="text-sm text-purple-600 hover:underline"
+              >
+                {copiedLink ? "Link copied!" : "Copy link"}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
