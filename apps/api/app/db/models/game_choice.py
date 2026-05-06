@@ -49,5 +49,7 @@ class GameChoice(Base, UUIDPKMixin):
         UniqueConstraint("game_round_id", "choice_text", name="uq_round_choice_text"),
     )
 
-    game_round = relationship("GameRound", back_populates="choices")
+    game_round = relationship(
+        "GameRound", back_populates="choices", foreign_keys=[game_round_id]
+    )
     created_by = relationship("Participant")
