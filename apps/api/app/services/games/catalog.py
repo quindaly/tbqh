@@ -10,6 +10,16 @@ GAMES = [
         "description": "Answer questions about yourself, then guess which friend gave each answer.",
         "status": "active",
     },
+    {
+        "id": "how-well-do-you-know",
+        "slug": "how-well-do-you-know",
+        "display_name": "How Well Do You Know [Person]?",
+        "description": "One person answers personal questions. Everyone else guesses the correct answer from multiple choices.",
+        "min_players": 3,
+        "max_players": 20,
+        "modes": ["default", "party"],
+        "status": "active",
+    },
 ]
 
 _BY_SLUG = {g["slug"]: g for g in GAMES}

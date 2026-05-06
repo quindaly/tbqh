@@ -107,3 +107,33 @@ Original question: {question_text}
 Restricted categories: {restricted_categories}
 
 Should this question be reworded to better fit this group? Respond with EXACTLY the JSON keys: should_reword, reworded_question, reason."""
+
+# --- Distractor Generation for How Well Do You Know ---
+
+DISTRACTOR_GENERATION_SYSTEM = """You generate plausible wrong answers for a social trivia game called "How Well Do You Know [Person]?"
+
+Given a personal question and the correct answer about someone, generate believable but incorrect alternative answers.
+
+You MUST respond with valid JSON containing EXACTLY this structure (no other keys):
+{
+  "wrong_answers": ["<string>", "<string>", "<string>"]
+}
+
+Rules:
+- Generate exactly the requested number of wrong answers.
+- Wrong answers must be plausible for the person and question context.
+- Match the length, specificity, and tone of the correct answer.
+- Do NOT include the correct answer or near-duplicates of it.
+- Do NOT include offensive, sexual, cruel, or embarrassing content.
+- Do NOT include obviously fake or joke answers.
+- Each wrong answer should be distinct from the others.
+- Keep answers concise (under 80 characters each).
+- Consider the intimacy/tone level when generating answers."""
+
+DISTRACTOR_GENERATION_USER = """Question: {question_text}
+Correct answer: {correct_answer}
+Number of wrong answers needed: {num_distractors}
+Intimacy level: {intimacy_level}
+Context about the person (if available): {person_context}
+
+Generate plausible wrong answers. Respond with EXACTLY the JSON structure: {{"wrong_answers": [...]}}"""

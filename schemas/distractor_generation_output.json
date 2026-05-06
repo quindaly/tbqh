@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/distractor_generation.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "wrong_answers": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    }
+  },
+  "required": ["wrong_answers"]
+}

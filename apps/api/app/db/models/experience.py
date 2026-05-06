@@ -49,17 +49,24 @@ class ExperienceInstance(Base, UUIDPKMixin, TimestampMixin):
     parent_experience_instance_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("experience_instances.id"), nullable=True
     )
+    main_person_participant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("participants.id"), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(
             "status IN ('active', 'completed')", name="ck_experience_status"
         ),
         CheckConstraint(
-            "experience_type IN ('discussion_recs', 'who_knows_who')",
+            "experience_type IN ('discussion_recs', 'who_knows_who', 'how_well_do_you_know')",
             name="ck_experience_type",
         ),
         CheckConstraint(
-            "game_state IS NULL OR game_state IN ('lobby', 'question_collection', 'ready_to_start', 'round_active', 'round_reveal', 'leaderboard', 'completed')",
+            "game_state IS NULL OR game_state IN ("
+            "'lobby', 'question_collection', 'ready_to_start', 'round_active', "
+            "'round_reveal', 'leaderboard', 'completed', "
+            "'main_person_answering', 'ai_generating_choices', "
+            "'main_person_reviewing_choices', 'players_submitting_fake_answers')",
             name="ck_experience_game_state",
         ),
     )

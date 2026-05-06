@@ -15,12 +15,21 @@ from app.db.models.participant import Participant
 from app.services.games.scoring import compute_scores
 
 VALID_TRANSITIONS: dict[str, list[str]] = {
-    "lobby": ["question_collection"],
+    # Who Knows Who
+    "lobby": ["question_collection", "main_person_answering"],
     "question_collection": ["ready_to_start"],
     "ready_to_start": ["round_active"],
     "round_active": ["round_reveal"],
-    "round_reveal": ["round_active", "leaderboard"],
+    "round_reveal": ["round_active", "leaderboard", "completed"],
     "leaderboard": ["completed"],
+    # How Well Do You Know
+    "main_person_answering": [
+        "ai_generating_choices",
+        "players_submitting_fake_answers",
+    ],
+    "ai_generating_choices": ["main_person_reviewing_choices"],
+    "main_person_reviewing_choices": ["ready_to_start"],
+    "players_submitting_fake_answers": ["ready_to_start"],
 }
 
 

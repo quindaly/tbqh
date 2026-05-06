@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from functools import lru_cache
 
+
 # In Docker container, schemas are at /schemas
 # Locally, they're at the workspace root (variable depth)
 def _build_schema_dirs() -> list[Path]:
@@ -49,3 +50,7 @@ def constrained_rewording_schema() -> dict:
 
 def offline_question_labeling_schema() -> dict:
     return _load("offline_question_labeling.json")
+
+
+def distractor_generation_schema() -> dict:
+    return _load("distractor_generation_output.json")
