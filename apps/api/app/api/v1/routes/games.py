@@ -126,6 +126,37 @@ def list_games():
 # ---- create / join ----
 
 
+@router.post("/games/how-well-do-you-know/create")
+def create_hwdyk_game(
+    body: CreateHWDYKBody,
+    user_id: uuid.UUID | None = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return hwdyk.create_game(
+        db,
+        user_id=user_id,
+        display_name=body.display_name,
+        mode=body.mode,
+        num_questions=body.num_questions,
+        intimacy_level=body.intimacy_level,
+    )
+
+
+@router.post("/games/how-well-do-you-know/join")
+def join_hwdyk_game(
+    body: JoinGameBody,
+    user_id: uuid.UUID | None = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return hwdyk.join_game(
+        db,
+        join_code=body.join_code,
+        display_name=body.display_name,
+        user_id=user_id,
+        join_mode=body.join_mode,
+    )
+
+
 @router.post("/games/{game_slug}/create")
 def create_game(
     game_slug: str,
@@ -281,37 +312,6 @@ def replay_game(experience_id: str, db: Session = Depends(get_db)):
 # ===========================================================
 # How Well Do You Know [Person]? endpoints
 # ===========================================================
-
-
-@router.post("/games/how-well-do-you-know/create")
-def create_hwdyk_game(
-    body: CreateHWDYKBody,
-    user_id: uuid.UUID | None = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
-):
-    return hwdyk.create_game(
-        db,
-        user_id=user_id,
-        display_name=body.display_name,
-        mode=body.mode,
-        num_questions=body.num_questions,
-        intimacy_level=body.intimacy_level,
-    )
-
-
-@router.post("/games/how-well-do-you-know/join")
-def join_hwdyk_game(
-    body: JoinGameBody,
-    user_id: uuid.UUID | None = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
-):
-    return hwdyk.join_game(
-        db,
-        join_code=body.join_code,
-        display_name=body.display_name,
-        user_id=user_id,
-        join_mode=body.join_mode,
-    )
 
 
 @router.get("/experiences/{experience_id}/hwdyk/lobby")

@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createGame, joinGame } from "@/lib/api";
 
 export default function GameSlugPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
+
+  // Redirect HWDYK to its dedicated page
+  useEffect(() => {
+    if (slug === "how-well-do-you-know") {
+      router.replace("/games/how-well-do-you-know");
+    }
+  }, [slug, router]);
 
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const [displayName, setDisplayName] = useState("");

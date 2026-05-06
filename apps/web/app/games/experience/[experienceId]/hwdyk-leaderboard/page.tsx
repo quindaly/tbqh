@@ -9,7 +9,7 @@ interface ScoreEntry {
   display_name: string;
   score: number;
   correct_count: number;
-  fool_count: number;
+  fool_count?: number;
   rank: number;
 }
 
@@ -18,8 +18,6 @@ export default function HWDYKLeaderboardPage() {
   const router = useRouter();
 
   const [scores, setScores] = useState<ScoreEntry[]>([]);
-  const [mode, setMode] = useState<string>("");
-  const [mainPersonName, setMainPersonName] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [replaying, setReplaying] = useState(false);
   const [error, setError] = useState("");
@@ -31,9 +29,7 @@ export default function HWDYKLeaderboardPage() {
 
   useEffect(() => {
     getHWDYKLeaderboard(experienceId).then((res) => {
-      setScores(res.scores || []);
-      setMode(res.mode || "default");
-      setMainPersonName(res.main_person_name || "");
+      setScores(res.leaderboard || []);
       setLoading(false);
     }).catch((e) => {
       setError(e.message);
@@ -45,7 +41,7 @@ export default function HWDYKLeaderboardPage() {
     setReplaying(true);
     try {
       const res = await replayHWDYKGame(experienceId);
-      router.push(`/games/experience/${res.new_experience_instance_id}/lobby`);
+      router.push(`/games/experience/${res.experience_instance_id}/hwdyk-lobby`);
     } catch (e: any) {
       setError(e.message);
       setReplaying(false);
@@ -67,11 +63,6 @@ export default function HWDYKLeaderboardPage() {
     <div className="max-w-lg mx-auto py-12 space-y-8">
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold">Game Over!</h1>
-        {mainPersonName && (
-          <p className="text-gray-500">
-            How well do you know <span className="font-medium text-purple-600">{mainPersonName}</span>?
-          </p>
-        )}
       </div>
 
       {/* Leaderboard */}
@@ -94,7 +85,7 @@ export default function HWDYKLeaderboardPage() {
                 )}
                 <div className="text-xs text-gray-500 mt-0.5">
                   {entry.correct_count} correct
-                  {mode === "party" && entry.fool_count > 0 && (
+                  {entry.fool_count && entry.fool_count > 0 && (
                     <> · fooled {entry.fool_count}</>
                   )}
                 </div>
