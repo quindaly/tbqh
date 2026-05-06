@@ -245,14 +245,10 @@ export default function HWDYKLobbyPage() {
           {lobby.main_person_participant_id && (
             <button
               onClick={handleStartSetup}
-              disabled={actionLoading || (lobby.participants?.length || 0) < 2}
+              disabled={actionLoading}
               className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
             >
-              {actionLoading
-                ? "Starting…"
-                : (lobby.participants?.length || 0) < 2
-                ? "Need at least 2 players"
-                : "Start Setup"}
+              {actionLoading ? "Starting…" : "Start Setup"}
             </button>
           )}
         </div>

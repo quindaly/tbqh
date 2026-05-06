@@ -305,17 +305,6 @@ def start_setup(
             detail="Main person must be selected before starting",
         )
 
-    link_count = (
-        db.query(SessionParticipant)
-        .filter(SessionParticipant.session_id == experience.session_id)
-        .count()
-    )
-    if link_count < 2:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Need at least 2 participants to start",
-        )
-
     transition_state(db, experience, "main_person_answering")
 
     config = experience.game_config or DEFAULT_GAME_CONFIG

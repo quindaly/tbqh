@@ -74,7 +74,15 @@ export default function ReviewPage() {
         ...prev,
         [choiceId]: (prev[choiceId] || 0) + 1,
       }));
-      await loadData();
+      // Update the choice text in-place without reloading (preserves order)
+      setRounds((prev) =>
+        prev.map((round) => ({
+          ...round,
+          choices: round.choices.map((c) =>
+            c.id === choiceId ? { ...c, text: res.new_text } : c
+          ),
+        }))
+      );
     } catch (e: any) {
       if (e.message?.includes("Limit of 3")) {
         setRegenCounts((prev) => ({ ...prev, [choiceId]: 3 }));
