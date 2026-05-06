@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createHWDYKGame, joinHWDYKGame } from "@/lib/api";
 
 export default function HowWellDoYouKnowPage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-gray-500">Loading…</div>}>
+      <HowWellDoYouKnowContent />
+    </Suspense>
+  );
+}
+
+function HowWellDoYouKnowContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
