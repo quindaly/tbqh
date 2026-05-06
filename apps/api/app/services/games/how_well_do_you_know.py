@@ -666,6 +666,12 @@ def regenerate_choice(
     existing_texts.append(choice.choice_text)
 
     schema = distractor_generation_schema()
+    # Override minItems since we only ask for 1 distractor here
+    regen_schema = {**schema}
+    regen_schema["properties"] = {
+        **schema["properties"],
+        "wrong_answers": {**schema["properties"]["wrong_answers"], "minItems": 1},
+    }
     try:
         result = call_llm_json(
             system_prompt=DISTRACTOR_GENERATION_SYSTEM,
@@ -676,7 +682,7 @@ def regenerate_choice(
                 intimacy_level=intimacy,
                 person_context=f"Avoid these existing answers: {existing_texts}",
             ),
-            json_schema=schema,
+            json_schema=regen_schema,
             temperature=0.9,
         )
         new_answers = result.get("wrong_answers", [])
@@ -1059,10 +1065,37 @@ def start_live_game(
     db.commit()
 
 
+def _personalize_question(question_text: str, display_name: str) -> str:
+    """Convert a 'your'-based question to use the main person's name.
+
+    E.g. "What is your favorite season?" -> "What is Quinn's favorite season?"
+    """
+    import re
+
+    name_possessive = f"{display_name}'s"
+
+    # Replace possessive "your" (case-insensitive)
+    result = re.sub(r"\byour\b", name_possessive, question_text, flags=re.IGNORECASE)
+    # Replace "you" that isn't part of "your" (already replaced above)
+    result = re.sub(r"\byou\b", display_name, result, flags=re.IGNORECASE)
+
+    return result
+
+
 def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
     """Build full game state payload for HWDYK polling."""
     participants = _get_participants(db, experience)
     config = experience.game_config or DEFAULT_GAME_CONFIG
+
+    # Get main person display name for question personalization
+    main_person_name = None
+    if experience.main_person_participant_id:
+        main_person = next(
+            (p for p in participants if p.id == experience.main_person_participant_id),
+            None,
+        )
+        if main_person:
+            main_person_name = main_person.display_name
 
     payload: dict = {
         "experience_id": str(experience.id),
@@ -1076,6 +1109,7 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
             if experience.main_person_participant_id
             else None
         ),
+        "main_person_display_name": main_person_name,
         "participants": [
             {"id": str(p.id), "display_name": p.display_name, "role": p.role}
             for p in participants
@@ -1131,7 +1165,12 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
                 "round_id": str(game_round.id),
                 "round_number": game_round.round_number,
                 "status": game_round.status,
-                "question_text": game_round.question_text,
+                "question_text": (
+                    _personalize_question(game_round.question_text, main_person_name)
+                    if main_person_name
+                    else game_round.question_text
+                ),
+                "question_text_self": game_round.question_text,
                 "time_remaining_seconds": int(time_remaining),
                 "is_locked": game_round.round_locked_at is not None,
                 "guesses_submitted": len(mc_guesses),
@@ -1407,6 +1446,7 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
         .all()
     )
     round_ids = [r.id for r in rounds]
+    round_start_map = {r.id: r.started_at for r in rounds}
 
     participants = _get_participants(db, experience)
     non_main = [
@@ -1426,11 +1466,23 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
         score = sum(g.points_awarded for g in guesses)
         correct_count = sum(1 for g in guesses if g.is_correct)
 
+        # Calculate average response time for tie-breaking
+        response_times = []
+        for g in guesses:
+            round_start = round_start_map.get(g.game_round_id)
+            if round_start and g.submitted_at:
+                delta = (g.submitted_at - round_start).total_seconds()
+                response_times.append(delta)
+        avg_time = (
+            sum(response_times) / len(response_times) if response_times else 999.0
+        )
+
         entry = {
             "participant_id": str(p.id),
             "display_name": p.display_name,
             "score": score,
             "correct_count": correct_count,
+            "avg_response_time": round(avg_time, 1),
         }
 
         if mode == "party":
@@ -1459,7 +1511,8 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
 
         results.append(entry)
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    # Sort by score desc, then by avg response time asc (faster wins ties)
+    results.sort(key=lambda x: (-x["score"], x["avg_response_time"]))
     for i, entry in enumerate(results):
         entry["rank"] = i + 1
 
@@ -1472,6 +1525,9 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
 def replay_game(db: Session, experience: ExperienceInstance) -> dict:
     config = experience.game_config or DEFAULT_GAME_CONFIG
     session = db.get(SessionModel, experience.session_id)
+
+    # Clean config for new game (remove state from previous game)
+    new_config = {k: v for k, v in config.items() if k not in ("regenerate_counts",)}
 
     join_code = generate_join_code()
     session_new = SessionModel(
@@ -1499,8 +1555,8 @@ def replay_game(db: Session, experience: ExperienceInstance) -> dict:
         session_id=session_new.id,
         experience_type="how_well_do_you_know",
         game_state="lobby",
-        game_config=config,
-        max_rounds=config.get("num_questions", 5),
+        game_config=new_config,
+        max_rounds=new_config.get("num_questions", 5),
         current_round=0,
         parent_experience_instance_id=experience.id,
     )

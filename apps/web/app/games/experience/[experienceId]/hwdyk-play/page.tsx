@@ -153,7 +153,9 @@ export default function HWDYKPlayPage() {
         </div>
 
         {/* Question */}
-        <h2 className="text-xl font-semibold text-center">{round.question_text}</h2>
+        <h2 className="text-xl font-semibold text-center">
+          {isMainPerson ? round.question_text_self || round.question_text : round.question_text}
+        </h2>
 
         {/* Main person view */}
         {isMainPerson ? (
@@ -235,7 +237,9 @@ export default function HWDYKPlayPage() {
           <span className="text-sm text-gray-500">
             Round {round.round_number} of {state.max_rounds}
           </span>
-          <h2 className="text-xl font-semibold mt-2">{round.question_text}</h2>
+          <h2 className="text-xl font-semibold mt-2">
+            {isMainPerson ? round.question_text_self || round.question_text : round.question_text}
+          </h2>
         </div>
 
         {/* Answer distribution */}

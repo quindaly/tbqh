@@ -41,6 +41,10 @@ export default function HWDYKLeaderboardPage() {
     setReplaying(true);
     try {
       const res = await replayHWDYKGame(experienceId);
+      // Copy participant ID to the new experience so the lobby recognizes this player
+      if (participantId) {
+        localStorage.setItem(`game_pid_${res.experience_instance_id}`, participantId);
+      }
       router.push(`/games/experience/${res.experience_instance_id}/hwdyk-lobby`);
     } catch (e: any) {
       setError(e.message);
