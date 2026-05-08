@@ -26,30 +26,51 @@ export default function HWDYKLobbyPage() {
   const [selectedMainPerson, setSelectedMainPerson] = useState<string>("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const participantId =
-    typeof window !== "undefined"
-      ? localStorage.getItem(`game_pid_${experienceId}`) || ""
-      : "";
+  const [participantId, setParticipantId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem(`game_pid_${experienceId}`) || "";
+  });
 
   const fetchLobby = useCallback(async () => {
     try {
       const data = await getHWDYKLobby(experienceId);
       setLobby(data);
 
+      // Auto-recover participantId for replay: if we don't have one for this
+      // experience, check if any stored PID matches a participant in this lobby
+      let pid = participantId;
+      if (!pid && data.participants?.length) {
+        const knownPids = new Set(
+          data.participants.map((p: Participant) => p.id)
+        );
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key?.startsWith("game_pid_")) {
+            const val = localStorage.getItem(key) || "";
+            if (knownPids.has(val)) {
+              localStorage.setItem(`game_pid_${experienceId}`, val);
+              pid = val;
+              setParticipantId(val);
+              break;
+            }
+          }
+        }
+      }
+
       // Route based on state
       if (data.game_state === "main_person_answering") {
-        if (participantId === data.main_person_participant_id) {
+        if (pid === data.main_person_participant_id) {
           router.push(`/games/experience/${experienceId}/answer`);
         }
         // Others stay in lobby waiting
       } else if (data.game_state === "ai_generating_choices") {
         // Main person waits, then goes to review
       } else if (data.game_state === "main_person_reviewing_choices") {
-        if (participantId === data.main_person_participant_id) {
+        if (pid === data.main_person_participant_id) {
           router.push(`/games/experience/${experienceId}/review`);
         }
       } else if (data.game_state === "players_submitting_fake_answers") {
-        if (participantId !== data.main_person_participant_id) {
+        if (pid !== data.main_person_participant_id) {
           router.push(`/games/experience/${experienceId}/fake-answers`);
         }
       } else if (data.game_state === "round_active" || data.game_state === "round_reveal") {
