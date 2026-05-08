@@ -457,8 +457,7 @@ export async function replayGame(experienceId: string) {
 export async function createHWDYKGame(
   displayName: string,
   mode: "default" | "party",
-  numQuestions: number = 5,
-  intimacyLevel: "light" | "personal" | "deep" = "personal"
+  numQuestions: number = 5
 ) {
   return apiFetch<{
     group_id: string;
@@ -473,7 +472,6 @@ export async function createHWDYKGame(
       display_name: displayName,
       mode,
       num_questions: numQuestions,
-      intimacy_level: intimacyLevel,
     }),
   });
 }

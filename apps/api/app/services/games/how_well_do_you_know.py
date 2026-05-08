@@ -321,8 +321,7 @@ def start_setup(
 
     config = experience.game_config or DEFAULT_GAME_CONFIG
     num_q = config.get("num_questions", 5)
-    intimacy = config.get("intimacy_level", "personal")
-    questions = select_questions(num_q, intimacy)
+    questions = select_questions(num_q)
 
     session = db.get(SessionModel, experience.session_id)
 

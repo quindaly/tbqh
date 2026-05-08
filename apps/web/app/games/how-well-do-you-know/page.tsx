@@ -21,7 +21,6 @@ function HowWellDoYouKnowContent() {
   const [joinCode, setJoinCode] = useState("");
   const [gameMode, setGameMode] = useState<"default" | "party">("default");
   const [numQuestions, setNumQuestions] = useState(5);
-  const [intimacyLevel, setIntimacyLevel] = useState<"light" | "personal" | "deep">("personal");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +41,7 @@ function HowWellDoYouKnowContent() {
     setLoading(true);
     setError("");
     try {
-      const res = await createHWDYKGame(displayName.trim(), gameMode, numQuestions, intimacyLevel);
+      const res = await createHWDYKGame(displayName.trim(), gameMode, numQuestions);
       localStorage.setItem(`game_pid_${res.experience_instance_id}`, res.participant_id);
       router.push(`/games/experience/${res.experience_instance_id}/hwdyk-lobby`);
     } catch (e: any) {
@@ -157,26 +156,6 @@ function HowWellDoYouKnowContent() {
             <div className="flex justify-between text-xs text-gray-400">
               <span>3</span>
               <span>10</span>
-            </div>
-          </div>
-
-          {/* Intimacy Level */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Question Style</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(["light", "personal", "deep"] as const).map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setIntimacyLevel(level)}
-                  className={`px-3 py-2 rounded-lg border text-sm capitalize transition ${
-                    intimacyLevel === level
-                      ? "border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
-                      : "border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
             </div>
           </div>
 
