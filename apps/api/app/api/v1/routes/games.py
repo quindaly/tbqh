@@ -522,7 +522,16 @@ def advance_hwdyk_round(
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")
 def get_hwdyk_leaderboard(experience_id: str, db: Session = Depends(get_db)):
     exp = _get_hwdyk_experience(db, experience_id)
-    return {"leaderboard": hwdyk.compute_hwdyk_scores(db, exp.id)}
+    # Check if a replay (child) experience exists
+    child = (
+        db.query(ExperienceInstance)
+        .filter(ExperienceInstance.parent_experience_instance_id == exp.id)
+        .first()
+    )
+    return {
+        "leaderboard": hwdyk.compute_hwdyk_scores(db, exp.id),
+        "next_experience_id": str(child.id) if child else None,
+    }
 
 
 @router.post("/experiences/{experience_id}/hwdyk/replay")

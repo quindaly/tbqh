@@ -28,14 +28,37 @@ export default function HWDYKLeaderboardPage() {
       : "";
 
   useEffect(() => {
-    getHWDYKLeaderboard(experienceId).then((res) => {
-      setScores(res.leaderboard || []);
-      setLoading(false);
-    }).catch((e) => {
-      setError(e.message);
-      setLoading(false);
-    });
-  }, [experienceId]);
+    let cancelled = false;
+
+    async function fetchLeaderboard() {
+      try {
+        const res = await getHWDYKLeaderboard(experienceId);
+        if (cancelled) return;
+        setScores(res.leaderboard || []);
+        setLoading(false);
+
+        // If a replay was started by the host, redirect everyone to the new lobby
+        if (res.next_experience_id) {
+          if (participantId) {
+            localStorage.setItem(`game_pid_${res.next_experience_id}`, participantId);
+          }
+          router.push(`/games/experience/${res.next_experience_id}/hwdyk-lobby`);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e.message);
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchLeaderboard();
+    const interval = setInterval(fetchLeaderboard, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [experienceId, participantId, router]);
 
   async function handleReplay() {
     setReplaying(true);
