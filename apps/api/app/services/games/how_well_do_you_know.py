@@ -18,7 +18,11 @@ from app.db.models.group import Group
 from app.db.models.participant import Participant
 from app.db.models.prompt import PromptInstance
 from app.db.models.session import Session as SessionModel, SessionParticipant
-from app.services.games.hwdyk_questions import select_questions
+from app.services.games.hwdyk_questions import (
+    select_questions,
+    format_question_self,
+    format_question_other,
+)
 from app.services.games.sharing import generate_join_code, generate_share_url
 from app.services.games.state import transition_state
 from app.services.llm.client import call_llm_json
@@ -369,7 +373,7 @@ def get_main_person_questions(db: Session, experience_id: uuid.UUID) -> list[dic
     return [
         {
             "id": str(p.id),
-            "prompt_text": p.prompt_text,
+            "prompt_text": format_question_self(p.prompt_text),
             "round_number": p.round_number,
         }
         for p in prompts
@@ -498,7 +502,7 @@ def _generate_distractors(db: Session, experience: ExperienceInstance) -> None:
             result = call_llm_json(
                 system_prompt=DISTRACTOR_GENERATION_SYSTEM,
                 user_prompt=DISTRACTOR_GENERATION_USER.format(
-                    question_text=game_round.question_text,
+                    question_text=format_question_self(game_round.question_text),
                     correct_answer=correct_choice.choice_text,
                     num_distractors=3,
                     intimacy_level=intimacy,
@@ -560,7 +564,7 @@ def get_review_data(
             {
                 "round_id": str(r.id),
                 "round_number": r.round_number,
-                "question_text": r.question_text,
+                "question_text": format_question_self(r.question_text),
                 "choices": [
                     {
                         "id": str(c.id),
@@ -676,7 +680,7 @@ def regenerate_choice(
         result = call_llm_json(
             system_prompt=DISTRACTOR_GENERATION_SYSTEM,
             user_prompt=DISTRACTOR_GENERATION_USER.format(
-                question_text=game_round.question_text,
+                question_text=format_question_self(game_round.question_text),
                 correct_answer=correct_choice.choice_text,
                 num_distractors=1,
                 intimacy_level=intimacy,
@@ -772,6 +776,9 @@ def get_fake_answer_questions(
             detail="Main person does not submit fake answers",
         )
 
+    main_person = db.get(Participant, experience.main_person_participant_id)
+    main_name = main_person.display_name if main_person else None
+
     rounds = (
         db.query(GameRound)
         .filter(GameRound.experience_instance_id == experience_id)
@@ -791,10 +798,15 @@ def get_fake_answer_questions(
             .first()
             is not None
         )
+        q_display = (
+            format_question_other(r.question_text, main_name)
+            if main_name
+            else format_question_self(r.question_text)
+        )
         result.append(
             {
                 "round_id": str(r.id),
-                "question_text": r.question_text,
+                "question_text": q_display,
                 "round_number": r.round_number,
                 "already_submitted": already_submitted,
             }
@@ -980,7 +992,7 @@ def lock_party_mode(
                 result = call_llm_json(
                     system_prompt=DISTRACTOR_GENERATION_SYSTEM,
                     user_prompt=DISTRACTOR_GENERATION_USER.format(
-                        question_text=game_round.question_text,
+                        question_text=format_question_self(game_round.question_text),
                         correct_answer=correct_choice.choice_text,
                         num_distractors=needed,
                         intimacy_level=intimacy,
@@ -1063,23 +1075,6 @@ def start_live_game(
 
     transition_state(db, experience, "round_active")
     db.commit()
-
-
-def _personalize_question(question_text: str, display_name: str) -> str:
-    """Convert a 'your'-based question to use the main person's name.
-
-    E.g. "What is your favorite season?" -> "What is Quinn's favorite season?"
-    """
-    import re
-
-    name_possessive = f"{display_name}'s"
-
-    # Replace possessive "your" (case-insensitive)
-    result = re.sub(r"\byour\b", name_possessive, question_text, flags=re.IGNORECASE)
-    # Replace "you" that isn't part of "your" (already replaced above)
-    result = re.sub(r"\byou\b", display_name, result, flags=re.IGNORECASE)
-
-    return result
 
 
 def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
@@ -1166,11 +1161,11 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
                 "round_number": game_round.round_number,
                 "status": game_round.status,
                 "question_text": (
-                    _personalize_question(game_round.question_text, main_person_name)
+                    format_question_other(game_round.question_text, main_person_name)
                     if main_person_name
-                    else game_round.question_text
+                    else format_question_self(game_round.question_text)
                 ),
-                "question_text_self": game_round.question_text,
+                "question_text_self": format_question_self(game_round.question_text),
                 "time_remaining_seconds": int(time_remaining),
                 "is_locked": game_round.round_locked_at is not None,
                 "guesses_submitted": len(mc_guesses),

@@ -1,54 +1,71 @@
-"""Question bank for How Well Do You Know [Person]? game."""
+"""Question bank for How Well Do You Know [Person]? game.
+
+Questions use template placeholders for personalization:
+  {poss}  — possessive: "your" (self) / "John's" (others)
+  {subj}  — subject:    "you"  (self) / "John"   (others)
+  {obj}   — object:     "you"  (self) / "John"   (others)
+  {their} — possessive after name already used: "your" (self) / "their" (others)
+"""
 
 from __future__ import annotations
 
 import random
 
 QUESTIONS = [
-    "What is your favorite food?",
-    "What is your favorite restaurant?",
-    "What is your go-to karaoke song?",
-    "What is your favorite movie of all time?",
-    "What food could you eat every day?",
-    "What is your favorite holiday destination?",
-    "What is your hidden talent?",
-    "What is your most-used emoji?",
-    "What is your comfort TV show?",
-    "What is your dream vacation?",
-    "What is your biggest pet peeve?",
-    "What is your favorite season?",
-    "What was your first job?",
-    "What is your go-to coffee order?",
-    "What is your favorite board game?",
-    "What would your superpower be?",
-    "What is your favorite snack?",
-    "What is your favorite song right now?",
-    "What is your favorite app on your phone?",
-    "What is your go-to takeout order?",
-    "What is your favorite way to spend a weekend?",
-    "What is your favorite book?",
-    "What is your favorite ice cream flavor?",
-    "What is your favorite way to relax?",
-    "What was your favorite subject in school?",
-    "What is your current job title?",
-    "Who was your best friend growing up?",
-    "What is your biggest fear?",
-    "What is your love language?",
-    "What is the best advice you've ever received?",
-    "What is your guilty pleasure?",
-    "What was your childhood dream job?",
-    "What is the best gift you've ever received?",
-    "What is the most spontaneous thing you've ever done?",
-    "What is a skill you wish you had?",
-    "What is your most-watched movie or show?",
-    "What is one habit you're trying to break?",
-    "What is the best compliment you've ever received?",
-    "Where did you have your first kiss?",
-    "How old were you when you had your first kiss?",
-    "What is your most embarrassing moment?",
-    "What is the best place you've ever visited?",
-    "What do you value most in a friendship?",
+    "What is {poss} favorite food?",
+    "What is {poss} favorite restaurant?",
+    "What is {poss} go-to karaoke song?",
+    "What is {poss} favorite movie of all time?",
+    "What food could {subj} eat every day?",
+    "What is {poss} favorite holiday destination?",
+    "What is {poss} hidden talent?",
+    "What is {poss} most-used emoji?",
+    "What is {poss} comfort TV show?",
+    "What is {poss} dream vacation?",
+    "What is {poss} biggest pet peeve?",
+    "What is {poss} favorite season?",
+    "What was {poss} first job?",
+    "What is {poss} go-to coffee order?",
+    "What is {poss} favorite board game?",
+    "What would {poss} superpower be?",
+    "What is {poss} favorite snack?",
+    "What is {poss} favorite song right now?",
+    "What is {poss} favorite app on {their} phone?",
+    "What is {poss} go-to takeout order?",
+    "What is {poss} favorite way to spend a weekend?",
+    "What is {poss} favorite book?",
+    "What is {poss} favorite ice cream flavor?",
+    "What is {poss} favorite way to relax?",
+    "What was {poss} favorite subject in school?",
+    "What is {poss} current job title?",
+    "Who was {poss} best friend growing up?",
+    "What is {poss} biggest fear?",
+    "What is {poss} love language?",
+    "What is {poss} best piece of advice ever received?",
+    "What is {poss} guilty pleasure?",
+    "What was {poss} childhood dream job?",
+    "What is {poss} favorite gift ever received?",
+    "What is {poss} most spontaneous moment?",
+    "What skill would {subj} most love to have?",
+    "What is {poss} most-watched movie or show?",
+    "What is {poss} worst habit?",
+    "What is {poss} favorite compliment ever received?",
+    "Where did {subj} have {their} first kiss?",
+    "At what age did {subj} have {their} first kiss?",
+    "What is {poss} most embarrassing moment?",
+    "What is {poss} favorite place ever visited?",
+    "What is {poss} most important quality in a friendship?",
 ]
+
+
+def format_question_self(template: str) -> str:
+    """Format a question template for the main person (second person)."""
+    return template.format(poss="your", subj="you", obj="you", their="your")
+
+
+def format_question_other(template: str, name: str) -> str:
+    """Format a question template for guessers (third person with name)."""
+    return template.format(poss=f"{name}'s", subj=name, obj=name, their="their")
 
 
 def select_questions(count: int) -> list[str]:
