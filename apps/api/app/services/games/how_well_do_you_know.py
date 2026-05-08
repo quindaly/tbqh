@@ -305,6 +305,18 @@ def start_setup(
             detail="Main person must be selected before starting",
         )
 
+    # Idempotent: if already in main_person_answering, return existing prompts count
+    if experience.game_state == "main_person_answering":
+        existing_count = (
+            db.query(PromptInstance)
+            .filter(
+                PromptInstance.experience_instance_id == experience.id,
+                PromptInstance.prompt_type == "hwdyk_main_person_question",
+            )
+            .count()
+        )
+        return {"prompts_created": existing_count}
+
     transition_state(db, experience, "main_person_answering")
 
     config = experience.game_config or DEFAULT_GAME_CONFIG
@@ -1309,11 +1321,16 @@ def submit_mc_guess(
 
     if all_guessed:
         game_round.round_locked_at = datetime.now(timezone.utc)
+        db.flush()
+        db.commit()
+        # Auto-reveal when all players have submitted
+        reveal_round(db, experience, round_id)
+        return {"ok": True, "is_correct": is_correct, "all_guessed": True}
 
     db.flush()
     db.commit()
 
-    return {"ok": True, "is_correct": is_correct, "all_guessed": all_guessed}
+    return {"ok": True, "is_correct": is_correct, "all_guessed": False}
 
 
 def reveal_round(
@@ -1326,6 +1343,10 @@ def reveal_round(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Round not found"
         )
+
+    # Idempotent: if already revealed, skip
+    if game_round.status == "revealed" or experience.game_state == "round_reveal":
+        return
 
     # Calculate Party Mode fool points
     config = experience.game_config or DEFAULT_GAME_CONFIG
