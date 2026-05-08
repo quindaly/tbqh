@@ -761,6 +761,7 @@ export async function getHWDYKLeaderboard(experienceId: string) {
       fool_count?: number;
       rank: number;
     }[];
+    next_experience_id?: string | null;
   }>(`/experiences/${experienceId}/hwdyk/leaderboard`);
 }
 
