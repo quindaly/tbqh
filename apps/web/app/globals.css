@@ -19,3 +19,20 @@ body {
     --background: #111;
   }
 }
+
+/* Gentle fade for the lobby's rotating fact; nothing at all if the person
+   has asked their device for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .connection-fact-fade {
+    animation: connection-fact-fade 0.5s ease-out;
+  }
+}
+
+@keyframes connection-fact-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

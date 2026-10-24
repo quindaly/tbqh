@@ -16,6 +16,7 @@ import {
   LobbyNotFound,
   LobbyUnreachable,
 } from "../../../_components/LobbyStatus";
+import { ConnectionFacts } from "../../../_components/ConnectionFacts";
 
 interface Participant {
   id: string;
@@ -462,6 +463,10 @@ export default function HWDYKLobbyPage() {
           Waiting for the host to configure and start…
         </p>
       )}
+
+      {/* Something to read while waiting. Last, so it never pushes the player
+          list, host controls, join code or timers around. */}
+      <ConnectionFacts />
     </div>
   );
 }
