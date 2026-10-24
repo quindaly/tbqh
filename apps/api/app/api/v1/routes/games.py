@@ -613,19 +613,27 @@ def advance_hwdyk_round(
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")
 def get_hwdyk_leaderboard(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     exp = _hwdyk_live(db, experience_id, background_tasks)
-    # Check if a replay (child) experience exists
-    child = (
-        db.query(ExperienceInstance)
-        .filter(ExperienceInstance.parent_experience_instance_id == exp.id)
-        .first()
-    )
     return {
         "leaderboard": hwdyk.compute_hwdyk_scores(db, exp.id),
-        "next_experience_id": str(child.id) if child else None,
+        **hwdyk.replay_status(db, exp),
     }
+
+
+class EnterLobbyBody(BaseModel):
+    participant_id: str
+
+
+@router.post("/experiences/{experience_id}/hwdyk/return")
+def return_to_hwdyk_lobby(
+    experience_id: str, body: EnterLobbyBody, db: Session = Depends(get_db)
+):
+    """Come back to the lobby after a game (idempotent, see hwdyk.enter_lobby)."""
+    exp = _get_hwdyk_experience(db, experience_id)
+    return hwdyk.enter_lobby(db, exp, _participant_uuid(body.participant_id))
 
 
 @router.post("/experiences/{experience_id}/hwdyk/replay")
 def replay_hwdyk_game(experience_id: str, db: Session = Depends(get_db)):
+    """Older clients: open the next lobby with everyone in it."""
     exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.replay_game(db, exp)
+    return hwdyk.enter_lobby(db, exp, None, everyone=True)

@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getHWDYKLobby,
+  returnToHWDYKLobby,
   selectMainPerson,
   startHWDYKSetup,
   startLiveGame,
@@ -20,6 +21,11 @@ interface Participant {
   id: string;
   display_name: string;
   role: string;
+}
+
+interface Absent {
+  id: string;
+  display_name: string;
 }
 
 export default function HWDYKLobbyPage() {
@@ -53,9 +59,10 @@ export default function HWDYKLobbyPage() {
     // experience, check if any stored PID matches a participant in this lobby
     let pid = participantId;
     if (!pid && data.participants?.length) {
-      const knownPids = new Set(
-        data.participants.map((p: Participant) => p.id)
-      );
+      const knownPids = new Set<string>([
+        ...data.participants.map((p: Participant) => p.id),
+        ...(data.absent_participants || []).map((p: Absent) => p.id),
+      ]);
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key?.startsWith("game_pid_")) {
@@ -69,6 +76,10 @@ export default function HWDYKLobbyPage() {
         }
       }
     }
+
+    // In a replay lobby, someone who hasn't come back is not in this game, so
+    // they are never sent into its screens.
+    if ((data.absent_participants || []).some((p: Absent) => p.id === pid)) return;
 
     // Route based on state
     // The main person is sent to their screen only while there is time left on
@@ -106,6 +117,19 @@ export default function HWDYKLobbyPage() {
     setError("");
     try {
       await selectMainPerson(experienceId, participantId, selectedMainPerson);
+      await fetchLobby();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleJoinThisLobby() {
+    setActionLoading(true);
+    setError("");
+    try {
+      await returnToHWDYKLobby(experienceId, participantId);
       await fetchLobby();
     } catch (e: any) {
       setError(e.message);
@@ -172,6 +196,8 @@ export default function HWDYKLobbyPage() {
 
   const isHost = participantId === lobby.host_id;
   const isMainPerson = participantId === lobby.main_person_participant_id;
+  const isAbsent = !!lobby.absent_participants?.some((p: Absent) => p.id === participantId);
+  const playerCount = lobby.participants?.length || 0;
   const mainPersonName =
     lobby.participants?.find(
       (p: Participant) => p.id === lobby.main_person_participant_id
@@ -229,7 +255,7 @@ export default function HWDYKLobbyPage() {
       {/* Participants */}
       <div className="space-y-2">
         <h2 className="font-semibold">
-          Players ({lobby.participants?.length || 0})
+          {lobby.is_replay ? "Back in the lobby" : "Players"} ({playerCount})
         </h2>
         <ul className="space-y-1">
           {lobby.participants?.map((p: Participant) => (
@@ -251,9 +277,46 @@ export default function HWDYKLobbyPage() {
             </li>
           ))}
         </ul>
+        {lobby.is_replay && lobby.absent_participants?.length > 0 && (
+          <div className="pt-2">
+            <h3 className="text-sm text-gray-500">Not back yet</h3>
+            <ul className="space-y-1 pt-1">
+              {lobby.absent_participants.map((p: Absent) => (
+                <li
+                  key={p.id}
+                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-gray-400"
+                >
+                  <span>{p.display_name}</span>
+                  {p.id === participantId && (
+                    <span className="text-xs text-purple-500">(you)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {error && <p role="alert" className="text-red-500 text-sm">{error}</p>}
+
+      {/* A session member who hasn't come back to this replay lobby yet */}
+      {isAbsent && (
+        <div className="space-y-2">
+          {lobby.game_state === "lobby" ? (
+            <button
+              onClick={handleJoinThisLobby}
+              disabled={actionLoading}
+              className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+            >
+              {actionLoading ? "Joining…" : "Join this lobby"}
+            </button>
+          ) : (
+            <p className="text-center text-gray-500" role="status">
+              This game has already started without you. You can join the next one.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Why we're back in the lobby (time ran out, nothing playable) */}
       {lobby.game_state === "lobby" && lobby.notice && (
@@ -268,39 +331,53 @@ export default function HWDYKLobbyPage() {
       {/* STATE: lobby — host selects main person & starts */}
       {lobby.game_state === "lobby" && isHost && (
         <div className="space-y-4">
-          {!lobby.main_person_participant_id && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Select who's in the hot seat:</label>
-              <select
-                value={selectedMainPerson}
-                onChange={(e) => setSelectedMainPerson(e.target.value)}
-                className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800"
-              >
-                <option value="">Choose a player…</option>
-                {lobby.participants?.map((p: Participant) => (
-                  <option key={p.id} value={p.id}>
-                    {p.display_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleSelectMainPerson}
-                disabled={!selectedMainPerson || actionLoading}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-              >
-                {actionLoading ? "Selecting…" : "Confirm Main Person"}
-              </button>
-            </div>
-          )}
+          <div className="space-y-2">
+            <label htmlFor="main-person" className="text-sm font-medium">
+              {lobby.main_person_participant_id
+                ? "Who's in the hot seat:"
+                : "Select who's in the hot seat:"}
+            </label>
+            <select
+              id="main-person"
+              value={selectedMainPerson || lobby.main_person_participant_id || ""}
+              onChange={(e) => setSelectedMainPerson(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800"
+            >
+              <option value="">Choose a player…</option>
+              {lobby.participants?.map((p: Participant) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name}
+                  {p.id === lobby.previous_main_person_id ? " (last game's hot seat)" : ""}
+                </option>
+              ))}
+            </select>
+            {selectedMainPerson &&
+              selectedMainPerson !== lobby.main_person_participant_id && (
+                <button
+                  onClick={handleSelectMainPerson}
+                  disabled={actionLoading}
+                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                >
+                  {actionLoading ? "Selecting…" : "Confirm Main Person"}
+                </button>
+              )}
+          </div>
 
           {lobby.main_person_participant_id && (
-            <button
-              onClick={handleStartSetup}
-              disabled={actionLoading}
-              className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-            >
-              {actionLoading ? "Starting…" : "Start Setup"}
-            </button>
+            <>
+              <button
+                onClick={handleStartSetup}
+                disabled={actionLoading || playerCount < 2}
+                className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                {actionLoading ? "Starting…" : "Start Setup"}
+              </button>
+              {playerCount < 2 && (
+                <p className="text-center text-sm text-gray-500">
+                  Waiting for at least one more player.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -380,7 +457,7 @@ export default function HWDYKLobbyPage() {
       )}
 
       {/* Non-host waiting message for lobby state */}
-      {lobby.game_state === "lobby" && !isHost && (
+      {lobby.game_state === "lobby" && !isHost && !isAbsent && (
         <p className="text-center text-gray-500">
           Waiting for the host to configure and start…
         </p>

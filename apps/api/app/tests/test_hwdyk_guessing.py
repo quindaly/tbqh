@@ -317,7 +317,11 @@ def test_late_arrival_in_the_session_does_not_change_who_must_guess(db):
 
 
 def test_round_with_no_guessers_waits_for_the_deadline(db):
-    exp, host, joined, r1 = go_live(db, players=())
+    exp, host, joined, r1 = go_live(db)
+    # Everyone who could guess has gone: the roster is empty but the round
+    # still has to end on its deadline rather than hang or end instantly.
+    r1.eligible_participant_ids = []
+    db.flush()
     assert r1.eligible_participant_ids == []
     assert hwdyk.close_round_if_due(db, exp.id) is False
     assert hwdyk.close_round_if_due(db, exp.id, now=r1.guess_deadline_at + GRACE + timedelta(seconds=1))

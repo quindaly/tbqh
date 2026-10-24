@@ -60,6 +60,7 @@ def test_clock_length_comes_from_config(db):
     exp = db.get(hwdyk.ExperienceInstance, uuid.UUID(created["experience_instance_id"]))
     exp.game_config = {**exp.game_config, "answer_seconds": 20}
     host = uuid.UUID(created["participant_id"])
+    hwdyk.join_game(db, created["join_code"], "Bea")
     hwdyk.select_main_person(db, exp, host, host)
     hwdyk.start_setup(db, exp, host)
     assert phases.phase_info(exp)["duration_seconds"] == 20

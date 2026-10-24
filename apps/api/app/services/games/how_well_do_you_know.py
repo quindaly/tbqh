@@ -8,8 +8,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import exists
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models.experience import ExperienceInstance
 from app.db.models.game_choice import GameChoice
@@ -56,14 +57,47 @@ logger = logging.getLogger(__name__)
 # ---------- helpers ----------
 
 
-def _get_participants(db: Session, experience: ExperienceInstance) -> list[Participant]:
+def _session_participants(db: Session, session_id: uuid.UUID) -> list[Participant]:
+    """Everyone who has ever joined this session, in join order."""
     links = (
         db.query(SessionParticipant)
-        .filter(SessionParticipant.session_id == experience.session_id)
+        .filter(SessionParticipant.session_id == session_id)
         .all()
     )
     pids = [l.participant_id for l in links]
-    return db.query(Participant).filter(Participant.id.in_(pids)).all()
+    if not pids:
+        return []
+    return (
+        db.query(Participant)
+        .filter(Participant.id.in_(pids))
+        .order_by(Participant.created_at, Participant.id)
+        .all()
+    )
+
+
+def _get_participants(db: Session, experience: ExperienceInstance) -> list[Participant]:
+    """The players in *this* game.
+
+    A replay lobby only contains the people who came back for it
+    (``present_participant_ids``); any other game has the whole session."""
+    everyone = _session_participants(db, experience.session_id)
+    present = experience.present_participant_ids
+    if present is None:
+        return everyone
+    keep = set(present)
+    return [p for p in everyone if str(p.id) in keep]
+
+
+def _effective_host(
+    db: Session, experience: ExperienceInstance
+) -> Participant | None:
+    """The host of this game: the session's host while they are in it, otherwise
+    the longest-standing player who is, so a replay never ends up host-less."""
+    participants = _get_participants(db, experience)
+    host = next((p for p in participants if p.role == "host"), None)
+    if host or experience.present_participant_ids is None:
+        return host
+    return participants[0] if participants else None
 
 
 def _verify_host(
@@ -71,27 +105,21 @@ def _verify_host(
     participant_id: uuid.UUID,
     experience: ExperienceInstance | None = None,
 ) -> Participant:
-    host = db.get(Participant, participant_id)
-    if not host or host.role != "host":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the host can perform this action",
-        )
-    if experience is not None:
-        # A host of some other game must not be able to act on this one.
-        in_session = (
-            db.query(SessionParticipant)
-            .filter(
-                SessionParticipant.session_id == experience.session_id,
-                SessionParticipant.participant_id == participant_id,
-            )
-            .first()
-        )
-        if not in_session:
+    if experience is None:
+        host = db.get(Participant, participant_id)
+        if not host or host.role != "host":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the host can perform this action",
             )
+        return host
+    # A host of some other game must not be able to act on this one.
+    host = _effective_host(db, experience)
+    if not host or host.id != participant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the host can perform this action",
+        )
     return host
 
 
@@ -214,12 +242,17 @@ def join_game(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid join code"
         )
 
+    # The join code outlives a single game, so people joining land in the
+    # newest game of the session: the one no later game follows.
+    later = aliased(ExperienceInstance)
     experience = (
         db.query(ExperienceInstance)
         .filter(
             ExperienceInstance.session_id == session.id,
             ExperienceInstance.experience_type == "how_well_do_you_know",
+            ~exists().where(later.parent_experience_instance_id == ExperienceInstance.id),
         )
+        .order_by(ExperienceInstance.created_at.desc(), ExperienceInstance.id)
         .first()
     )
     if not experience:
@@ -239,6 +272,17 @@ def join_game(
             detail="Game has already started — cannot join",
         )
 
+    # A replay lobby keeps its own roster, so settle (under lock) that it is
+    # still a lobby before anyone is added to it.
+    locked = None
+    if experience.present_participant_ids is not None:
+        locked = _lock_experience(db, experience.id)
+        if locked.game_state != "lobby":
+            raise _conflict(
+                "game_in_progress",
+                "The next game has already started — you can join the one after.",
+            )
+
     participant = Participant(
         group_id=session.group_id,
         user_id=user_id,
@@ -252,6 +296,10 @@ def join_game(
     sp = SessionParticipant(session_id=session.id, participant_id=participant.id)
     db.add(sp)
     db.flush()
+
+    if locked is not None:
+        # Joining a replay lobby: the newcomer is in it from the start.
+        _add_present(locked, participant.id)
 
     log_event(
         db,
@@ -275,7 +323,7 @@ def join_game(
 def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
     session = db.get(SessionModel, experience.session_id)
     participants = _get_participants(db, experience)
-    host = next((p for p in participants if p.role == "host"), None)
+    host = _effective_host(db, experience)
     config = experience.game_config or DEFAULT_GAME_CONFIG
 
     progress = None
@@ -284,6 +332,22 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
             "answered": phases.answered_count(db, experience),
             "total": int(config.get("num_questions", 5)),
         }
+
+    # In a replay lobby, also say who has not come back yet and who was in the
+    # hot seat last time, so the host can see the room and rotate the turn.
+    absent: list[dict] = []
+    previous_main = None
+    if experience.present_participant_ids is not None:
+        here = {p.id for p in participants}
+        absent = [
+            {"id": str(p.id), "display_name": p.display_name}
+            for p in _session_participants(db, experience.session_id)
+            if p.id not in here
+        ]
+    if experience.parent_experience_instance_id:
+        parent = db.get(ExperienceInstance, experience.parent_experience_instance_id)
+        if parent and parent.main_person_participant_id:
+            previous_main = str(parent.main_person_participant_id)
 
     return {
         "experience_id": str(experience.id),
@@ -306,10 +370,17 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
             if experience.main_person_participant_id
             else None
         ),
+        "is_replay": experience.present_participant_ids is not None,
+        "previous_main_person_id": previous_main,
         "participants": [
-            {"id": str(p.id), "display_name": p.display_name, "role": p.role}
+            {
+                "id": str(p.id),
+                "display_name": p.display_name,
+                "role": "host" if host and p.id == host.id else "guest",
+            }
             for p in participants
         ],
+        "absent_participants": absent,
     }
 
 
@@ -320,6 +391,12 @@ def select_main_person(
     main_person_participant_id: uuid.UUID,
 ) -> None:
     _verify_host(db, host_participant_id, experience)
+    experience = _lock_experience(db, experience.id)
+    if experience.game_state != "lobby":
+        # Changing the hot seat mid-setup would orphan the answers already given.
+        raise _conflict(
+            "setup_in_progress", "The main person can only be changed from the lobby."
+        )
 
     # Verify main person is a participant in this game
     participants = _get_participants(db, experience)
@@ -365,6 +442,16 @@ def start_setup(
         )
         db.commit()
         return {"prompts_created": existing_count}
+
+    players = _get_participants(db, experience)
+    if len(players) < 2 or experience.main_person_participant_id not in {
+        p.id for p in players
+    }:
+        # The hot seat needs at least one other player to do the guessing.
+        raise _conflict(
+            "not_enough_players",
+            "You need at least two players in the lobby to start.",
+        )
 
     transition_state(db, experience, "main_person_answering")
     phases.start_phase_clock(experience, phases.answer_seconds(experience))
@@ -1803,55 +1890,176 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
 
 # ---------- replay ----------
 
+# Settings that carry over to the next game. Everything else in a game's config
+# (regeneration counts, failure notices, ...) belongs to that one game, so the
+# replay starts from this list rather than from a copy minus a few keys.
+_CARRY_OVER_CONFIG = (
+    "mode",
+    "num_questions",
+    "intimacy_level",
+    "min_answer_length",
+    "guess_seconds",
+    "answer_seconds",
+    "edit_seconds",
+)
 
-def replay_game(db: Session, experience: ExperienceInstance) -> dict:
-    config = experience.game_config or DEFAULT_GAME_CONFIG
-    session = db.get(SessionModel, experience.session_id)
 
-    # Clean config for new game (remove state from previous game)
-    new_config = {k: v for k, v in config.items() if k not in ("regenerate_counts",)}
+def _add_present(experience: ExperienceInstance, participant_id: uuid.UUID) -> bool:
+    """Mark a participant as being in this game's lobby. Returns True if new.
 
-    join_code = generate_join_code()
-    session_new = SessionModel(
-        group_id=session.group_id,
-        policy_profile_id=session.policy_profile_id,
-        join_code=join_code,
-    )
-    db.add(session_new)
-    db.flush()
+    The experience row must be locked by the caller."""
+    ids = list(experience.present_participant_ids or [])
+    if str(participant_id) in ids:
+        return False
+    ids.append(str(participant_id))
+    experience.present_participant_ids = ids  # new list so the change is saved
+    experience.state_version = (experience.state_version or 0) + 1
+    return True
 
-    # Copy participants
-    links = (
-        db.query(SessionParticipant)
-        .filter(SessionParticipant.session_id == experience.session_id)
-        .all()
-    )
-    for link in links:
-        sp = SessionParticipant(
-            session_id=session_new.id, participant_id=link.participant_id
+
+def _newest_child(db: Session, experience_id: uuid.UUID) -> ExperienceInstance | None:
+    return (
+        db.query(ExperienceInstance)
+        .filter(
+            ExperienceInstance.parent_experience_instance_id == experience_id,
+            ExperienceInstance.experience_type == "how_well_do_you_know",
         )
-        db.add(sp)
-    db.flush()
+        .order_by(ExperienceInstance.created_at.desc(), ExperienceInstance.id)
+        .first()
+    )
 
+
+def get_replay_experience(
+    db: Session, experience: ExperienceInstance
+) -> ExperienceInstance | None:
+    """The game that follows this one, if any (read-only)."""
+    return _newest_child(db, experience.id)
+
+
+def _new_replay_experience(
+    db: Session, finished: ExperienceInstance
+) -> ExperienceInstance:
+    config = finished.game_config or DEFAULT_GAME_CONFIG
+    new_config = {k: config[k] for k in _CARRY_OVER_CONFIG if k in config}
     new_exp = ExperienceInstance(
-        session_id=session_new.id,
+        session_id=finished.session_id,
         experience_type="how_well_do_you_know",
         game_state="lobby",
         game_config=new_config,
-        max_rounds=new_config.get("num_questions", 5),
+        max_rounds=int(new_config.get("num_questions", 5)),
         current_round=0,
-        parent_experience_instance_id=experience.id,
+        parent_experience_instance_id=finished.id,
+        present_participant_ids=[],
     )
     db.add(new_exp)
     db.flush()
-
-    share_url = generate_share_url(
-        new_exp.id, join_code, game_slug="how-well-do-you-know"
+    log_event(
+        db,
+        "hwdyk_replay_created",
+        session_id=finished.session_id,
+        experience_instance_id=new_exp.id,
+        payload={"previous_experience_id": str(finished.id)},
     )
-    db.commit()
+    return new_exp
 
+
+def enter_lobby(
+    db: Session,
+    experience: ExperienceInstance,
+    participant_id: uuid.UUID | None,
+    everyone: bool = False,
+) -> dict:
+    """"Return to lobby" / "Play again".
+
+    The session (and its join code) stays the same; each game is its own
+    experience, so the finished game's rounds, guesses and scores are kept as
+    history and the new game starts clean. The first person to come back opens
+    the next lobby, everyone else joins it, and anyone who does not come back
+    simply is not part of it.
+
+    Safe to repeat, from any number of devices, and from a stale results link:
+    the call always lands in the newest game of this chain. ``everyone`` adds the
+    whole session, which keeps older clients that call the bare replay endpoint
+    working."""
+    if participant_id is not None:
+        member = (
+            db.query(SessionParticipant)
+            .filter(
+                SessionParticipant.session_id == experience.session_id,
+                SessionParticipant.participant_id == participant_id,
+            )
+            .first()
+        )
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not part of this game",
+            )
+
+    # Walk to the newest game, locking each row on the way (always parent
+    # before child) so two simultaneous returns can't both open a lobby.
+    current = experience
+    for _ in range(100):
+        tail = _lock_experience(db, current.id)
+        child = _newest_child(db, tail.id)
+        if child is None:
+            break
+        current = child
+    else:  # pragma: no cover - a chain this long means corrupt data
+        raise _conflict("replay_chain_invalid", "Couldn't find the current game.")
+
+    if tail.game_state == "completed":
+        tail = _new_replay_experience(db, tail)
+    elif tail.present_participant_ids is not None:
+        if tail.game_state != "lobby":
+            raise _conflict(
+                "game_in_progress",
+                "The next game has already started — you can join the one after.",
+            )
+    # else: a first game that hasn't finished. Everyone in the session is
+    # already in it, so there is nothing to do but point at it.
+
+    if tail.present_participant_ids is not None:
+        if everyone:
+            for p in _session_participants(db, tail.session_id):
+                _add_present(tail, p.id)
+        elif participant_id is not None:
+            if _add_present(tail, participant_id):
+                log_event(
+                    db,
+                    "hwdyk_returned_to_lobby",
+                    session_id=tail.session_id,
+                    experience_instance_id=tail.id,
+                    participant_id=participant_id,
+                )
+
+    session = db.get(SessionModel, tail.session_id)
+    result = {
+        "experience_instance_id": str(tail.id),
+        "game_state": tail.game_state,
+        "join_code": session.join_code,
+        "share_url": generate_share_url(
+            tail.id, session.join_code, game_slug="how-well-do-you-know"
+        ),
+    }
+    db.commit()
+    return result
+
+
+def replay_status(db: Session, experience: ExperienceInstance) -> dict:
+    """What the results screen needs to show about the next game."""
+    child = _newest_child(db, experience.id)
+    total = len(_session_participants(db, experience.session_id))
+    if child is None:
+        return {
+            "next_experience_id": None,
+            "next_game_state": None,
+            "returned_ids": [],
+            "participant_count": total,
+        }
     return {
-        "experience_instance_id": str(new_exp.id),
-        "join_code": join_code,
-        "share_url": share_url,
+        "next_experience_id": str(child.id),
+        "next_game_state": child.game_state,
+        "returned_ids": list(child.present_participant_ids or []),
+        "participant_count": total,
     }

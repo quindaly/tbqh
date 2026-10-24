@@ -564,7 +564,12 @@ export async function getHWDYKLobby(experienceId: string) {
     share_url: string;
     host_id: string | null;
     main_person_participant_id: string | null;
+    /** True for a "play again" lobby, which only holds the people who came back. */
+    is_replay: boolean;
+    previous_main_person_id: string | null;
     participants: { id: string; display_name: string; role: string }[];
+    /** Replay lobbies: people from the session who haven't come back yet. */
+    absent_participants: { id: string; display_name: string }[];
   }>(`/experiences/${experienceId}/hwdyk/lobby`);
 }
 
@@ -855,14 +860,30 @@ export async function getHWDYKLeaderboard(experienceId: string) {
       fool_count?: number;
       rank: number;
     }[];
-    next_experience_id?: string | null;
+    /** The lobby for the next game, once anyone has opened it. */
+    next_experience_id: string | null;
+    next_game_state: string | null;
+    /** Participants who are already in that lobby. */
+    returned_ids: string[];
+    participant_count: number;
   }>(`/experiences/${experienceId}/hwdyk/leaderboard`);
 }
 
-export async function replayHWDYKGame(experienceId: string) {
+/**
+ * "Return to lobby / play again". Opens the next lobby if nobody has yet, and
+ * puts this participant in it. Safe to call repeatedly.
+ */
+export async function returnToHWDYKLobby(
+  experienceId: string,
+  participantId: string
+) {
   return apiFetch<{
     experience_instance_id: string;
+    game_state: string;
     join_code: string;
     share_url: string;
-  }>(`/experiences/${experienceId}/hwdyk/replay`, { method: "POST" });
+  }>(`/experiences/${experienceId}/hwdyk/return`, {
+    method: "POST",
+    body: JSON.stringify({ participant_id: participantId }),
+  });
 }

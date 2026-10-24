@@ -64,6 +64,12 @@ class ExperienceInstance(Base, UUIDPKMixin, TimestampMixin):
     phase_deadline_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Replay lobbies: the participants who have come back for this game (ids as
+    # strings). NULL means "everyone in the session", which is how every game
+    # created before replays existed, and every first game, behaves.
+    present_participant_ids: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(
