@@ -44,7 +44,7 @@ export default function AnswerPage() {
         ) {
           router.push(`/games/experience/${experienceId}/review`);
         } else if (state.game_state === "players_submitting_fake_answers") {
-          router.push(`/games/experience/${experienceId}/lobby`);
+          router.push(`/games/experience/${experienceId}/hwdyk-lobby`);
         } else if (state.game_state === "round_active") {
           router.push(`/games/experience/${experienceId}/hwdyk-play`);
         }

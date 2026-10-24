@@ -10,12 +10,34 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
  */
 export class ApiError extends Error {
   status: number;
+  /** Machine-readable reason from the server (e.g. "stale_revision"), if given. */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Turn FastAPI's `detail` (string, {code,message}, or validation list) into text. */
+function describeDetail(detail: unknown): { message?: string; code?: string } {
+  if (typeof detail === "string") return { message: detail };
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as any).msg) : ""))
+      .filter(Boolean);
+    return { message: msgs.join("; ") || undefined };
+  }
+  if (detail && typeof detail === "object") {
+    const d = detail as { message?: unknown; code?: unknown };
+    return {
+      message: typeof d.message === "string" ? d.message : undefined,
+      code: typeof d.code === "string" ? d.code : undefined,
+    };
+  }
+  return {};
 }
 
 async function apiFetch<T>(
@@ -38,9 +60,11 @@ async function apiFetch<T>(
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
+    const { message, code } = describeDetail(body.detail);
     throw new ApiError(
-      body.detail || body.error || `API error ${res.status}`,
-      res.status
+      message || body.error || `API error ${res.status}`,
+      res.status,
+      code
     );
   }
   return res.json();
@@ -585,6 +609,7 @@ export async function submitMainPersonAnswer(
 
 export async function getReviewChoices(experienceId: string, participantId: string) {
   return apiFetch<{
+    game_state: string;
     rounds: {
       round_id: string;
       round_number: number;
@@ -594,6 +619,8 @@ export async function getReviewChoices(experienceId: string, participantId: stri
         text: string;
         is_correct: boolean;
         source_type: string;
+        revision: number;
+        regenerations_used: number;
       }[];
     }[];
   }>(`/experiences/${experienceId}/review-choices?participant_id=${participantId}`);
@@ -603,13 +630,18 @@ export async function editChoice(
   experienceId: string,
   choiceId: string,
   participantId: string,
-  newText: string
+  newText: string,
+  expectedRevision?: number
 ) {
-  return apiFetch<{ ok: boolean }>(
+  return apiFetch<{ ok: boolean; id: string; text: string; revision: number }>(
     `/experiences/${experienceId}/choices/${choiceId}/edit`,
     {
       method: "POST",
-      body: JSON.stringify({ participant_id: participantId, new_text: newText }),
+      body: JSON.stringify({
+        participant_id: participantId,
+        new_text: newText,
+        expected_revision: expectedRevision,
+      }),
     }
   );
 }
@@ -617,23 +649,35 @@ export async function editChoice(
 export async function regenerateChoice(
   experienceId: string,
   choiceId: string,
-  participantId: string
+  participantId: string,
+  expectedRevision?: number
 ) {
-  return apiFetch<{ new_text: string }>(
-    `/experiences/${experienceId}/choices/${choiceId}/regenerate`,
-    {
-      method: "POST",
-      body: JSON.stringify({ participant_id: participantId }),
-    }
-  );
+  return apiFetch<{
+    id: string;
+    new_text: string;
+    text: string;
+    revision: number;
+    regenerations_used: number;
+    regenerations_remaining: number;
+  }>(`/experiences/${experienceId}/choices/${choiceId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({
+      participant_id: participantId,
+      expected_revision: expectedRevision,
+    }),
+  });
 }
 
-export async function confirmChoices(experienceId: string, participantId: string) {
+export async function confirmChoices(
+  experienceId: string,
+  participantId: string,
+  revisions?: Record<string, number>
+) {
   return apiFetch<{ ok: boolean }>(
     `/experiences/${experienceId}/confirm-choices`,
     {
       method: "POST",
-      body: JSON.stringify({ participant_id: participantId }),
+      body: JSON.stringify({ participant_id: participantId, revisions }),
     }
   );
 }

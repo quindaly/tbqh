@@ -12,8 +12,10 @@ from sqlalchemy import (
     Integer,
     Text,
     CheckConstraint,
+    Index,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -37,6 +39,11 @@ class GameChoice(Base, UUIDPKMixin):
     )
     original_ai_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Bumped on every edit/regeneration. Clients send the revision they last saw
+    # so a stale write (an old save arriving late) is rejected, not applied.
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -47,6 +54,15 @@ class GameChoice(Base, UUIDPKMixin):
             name="ck_game_choice_source_type",
         ),
         UniqueConstraint("game_round_id", "choice_text", name="uq_round_choice_text"),
+        # One fake answer per player per question, enforced by the database so
+        # two simultaneous submits can't both get in.
+        Index(
+            "uq_round_player_fake",
+            "game_round_id",
+            "created_by_participant_id",
+            unique=True,
+            postgresql_where=text("source_type = 'player_fake'"),
+        ),
     )
 
     game_round = relationship(

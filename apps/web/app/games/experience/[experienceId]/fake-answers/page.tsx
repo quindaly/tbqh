@@ -25,6 +25,8 @@ export default function FakeAnswersPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [allDone, setAllDone] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const participantId =
     typeof window !== "undefined"
@@ -32,17 +34,20 @@ export default function FakeAnswersPage() {
       : "";
 
   useEffect(() => {
-    getFakeAnswerQuestions(experienceId, participantId).then((res) => {
-      setQuestions(res.questions);
-      // Skip already submitted
-      const firstUnanswered = res.questions.findIndex((q) => !q.already_submitted);
-      if (firstUnanswered === -1) {
-        setAllDone(true);
-      } else {
-        setCurrentIdx(firstUnanswered);
-      }
-    });
-  }, [experienceId, participantId]);
+    setLoadError("");
+    getFakeAnswerQuestions(experienceId, participantId)
+      .then((res) => {
+        setQuestions(res.questions);
+        // Skip already submitted
+        const firstUnanswered = res.questions.findIndex((q) => !q.already_submitted);
+        if (firstUnanswered === -1) {
+          setAllDone(true);
+        } else {
+          setCurrentIdx(firstUnanswered);
+        }
+      })
+      .catch((e: any) => setLoadError(e.message || "Couldn't load the questions."));
+  }, [experienceId, participantId, reloadKey]);
 
   // Poll for game start after done
   useEffect(() => {
@@ -51,7 +56,7 @@ export default function FakeAnswersPage() {
       try {
         const state = await getHWDYKState(experienceId);
         if (state.game_state === "ready_to_start") {
-          router.push(`/games/experience/${experienceId}/lobby`);
+          router.push(`/games/experience/${experienceId}/hwdyk-lobby`);
         } else if (state.game_state === "round_active") {
           router.push(`/games/experience/${experienceId}/hwdyk-play`);
         }
@@ -88,6 +93,20 @@ export default function FakeAnswersPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (loadError && questions.length === 0) {
+    return (
+      <div className="py-12 text-center space-y-4">
+        <p className="text-gray-500">{loadError}</p>
+        <button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (questions.length === 0) {
