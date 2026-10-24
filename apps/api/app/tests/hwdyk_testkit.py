@@ -72,3 +72,42 @@ def wrong_choices(db, exp):
         .all()
         for r in rounds
     ]
+
+
+def go_live(db, mode="default", num_questions=2, players=("Bea", "Cal")):
+    """Play a game through prep and start round 1. Returns (exp, host, players, round1)."""
+    exp, host, joined = make_game(db, mode, num_questions, players)
+    if mode == "party":
+        r1 = (
+            db.query(GameRound)
+            .filter(GameRound.experience_instance_id == exp.id)
+            .order_by(GameRound.round_number)
+            .all()
+        )
+        for r in r1:
+            for who, text in zip(joined, ("Salad", "Soup", "Stew", "Curry")):
+                hwdyk.submit_fake_answer(db, exp, r.id, who, f"{text} {r.round_number}")
+        hwdyk.lock_party_mode(db, exp, host)
+    else:
+        hwdyk.confirm_choices(db, exp, host)
+    hwdyk.start_live_game(db, exp, host)
+    db.refresh(exp)
+    first = (
+        db.query(GameRound)
+        .filter(GameRound.experience_instance_id == exp.id, GameRound.round_number == 1)
+        .one()
+    )
+    return exp, host, joined, first
+
+
+def choice_ids(db, game_round):
+    """(correct_id, [wrong ids]) of the cards on screen."""
+    cards = (
+        db.query(GameChoice)
+        .filter(GameChoice.game_round_id == game_round.id, GameChoice.display_order.isnot(None))
+        .all()
+    )
+    return (
+        [c.id for c in cards if c.is_correct][0],
+        [c.id for c in cards if not c.is_correct],
+    )

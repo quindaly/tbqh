@@ -1,79 +1,91 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  ApiError,
   getHWDYKState,
   submitMCGuess,
   revealHWDYKRound,
   advanceHWDYKRound,
-  getHWDYKLeaderboard,
 } from "@/lib/api";
+import { useCountdown } from "@/lib/countdown";
+import { usePolling } from "@/lib/usePolling";
+import {
+  ConnectionBanner,
+  LobbyNotFound,
+  LobbyUnreachable,
+} from "../../../_components/LobbyStatus";
 
 export default function HWDYKPlayPage() {
   const { experienceId } = useParams<{ experienceId: string }>();
   const router = useRouter();
 
   const [state, setState] = useState<any>(null);
+  // When `state` arrived on this device's clock (the countdown is measured from here).
+  const [receivedAt, setReceivedAt] = useState(0);
+  const lastVersion = useRef(-1);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [guessSubmitted, setGuessSubmitted] = useState(false);
   const [guessResult, setGuessResult] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [timeLeft, setTimeLeft] = useState(60);
 
-  const participantId =
+  const [participantId] = useState(() =>
     typeof window !== "undefined"
       ? localStorage.getItem(`game_pid_${experienceId}`) || ""
-      : "";
+      : ""
+  );
 
+  // Throws on failure so usePolling can back off and surface outages.
   const fetchState = useCallback(async () => {
-    try {
-      const s = await getHWDYKState(experienceId);
-      setState(s);
+    const s = await getHWDYKState(experienceId);
+    // Two polls can overlap; never let an older reply replace a newer state.
+    if (s.state_version < lastVersion.current) return;
+    lastVersion.current = s.state_version;
+    setState(s);
+    setReceivedAt(Date.now());
 
-      if (s.game_state === "completed") {
-        router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
-        return;
-      }
-
-      if (s.round?.time_remaining_seconds !== undefined) {
-        setTimeLeft(s.round.time_remaining_seconds);
-      }
-
-      // Reset guess state on new round
-      if (s.game_state === "round_active" && s.round) {
-        // Check if we already guessed this round (by checking guesses_submitted)
-      }
-    } catch {}
+    if (s.game_state === "completed") {
+      router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
+    }
   }, [experienceId, router]);
 
-  useEffect(() => {
-    fetchState();
-    const interval = setInterval(fetchState, 2500);
-    return () => clearInterval(interval);
-  }, [fetchState]);
+  const { failures, fatal, gaveUp, retry } = usePolling(fetchState, { baseMs: 2500 });
 
-  // Client-side timer countdown
-  useEffect(() => {
-    if (!state || state.game_state !== "round_active") return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [state?.game_state, state?.round?.round_id]);
+  // The server owns the clock: count down from the seconds it reported when it
+  // replied, so a device with a wrong clock still shows the right time.
+  const timeLeft =
+    useCountdown(
+      state?.game_state === "round_active" && state?.round
+        ? { seconds_remaining: state.round.seconds_remaining ?? state.round.time_remaining_seconds }
+        : null,
+      receivedAt
+    ) ?? 0;
+  const duration = state?.round?.duration_seconds || 30;
 
-  // Reset guess state on round change
+  // New round: clear last round's pick. After a reload, remember a guess we already made.
+  const roundId = state?.round?.round_id;
   useEffect(() => {
-    if (state?.game_state === "round_active") {
-      setGuessSubmitted(false);
+    if (!state?.round) return;
+    const mine = state.round.guessed_participant_ids?.includes(participantId);
+    setGuessSubmitted(!!mine);
+    if (!mine) {
       setGuessResult(null);
       setSelectedChoice(null);
     }
-  }, [state?.round?.round_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
+
+  // Someone else's tab (or a reload) may already hold our guess.
+  useEffect(() => {
+    if (state?.round?.guessed_participant_ids?.includes(participantId)) {
+      setGuessSubmitted(true);
+    }
+  }, [state?.round?.guessed_participant_ids, participantId]);
 
   async function handleGuess(choiceId: string) {
-    if (guessSubmitted || loading) return;
+    if (guessSubmitted || loading || timeLeft <= 0) return;
     setSelectedChoice(choiceId);
     setLoading(true);
     setError("");
@@ -86,9 +98,18 @@ export default function HWDYKPlayPage() {
       );
       setGuessSubmitted(true);
       setGuessResult(res.is_correct);
+      void fetchState().catch(() => {});
     } catch (e: any) {
-      setError(e.message);
-      setSelectedChoice(null);
+      if (e instanceof ApiError && e.code === "already_guessed") {
+        setGuessSubmitted(true);
+      } else if (e instanceof ApiError && e.code === "round_closed") {
+        // Too late: the round is over for everyone. Show the reveal.
+        setSelectedChoice(null);
+        void fetchState().catch(() => {});
+      } else {
+        setSelectedChoice(null);
+        setError(e.message || "Couldn't send your guess. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -97,6 +118,7 @@ export default function HWDYKPlayPage() {
   async function handleReveal() {
     try {
       await revealHWDYKRound(experienceId, state.round.round_id);
+      void fetchState().catch(() => {});
     } catch (e: any) {
       setError(e.message);
     }
@@ -107,14 +129,24 @@ export default function HWDYKPlayPage() {
       const res = await advanceHWDYKRound(experienceId, state.round.round_id);
       if (res.is_last) {
         router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
+      } else {
+        void fetchState().catch(() => {});
       }
     } catch (e: any) {
       setError(e.message);
     }
   }
 
+  if (fatal) {
+    return <LobbyNotFound />;
+  }
+
   if (!state) {
-    return <div className="py-12 text-center text-gray-500">Loading…</div>;
+    return gaveUp ? (
+      <LobbyUnreachable onRetry={retry} />
+    ) : (
+      <div className="py-12 text-center text-gray-500">Loading…</div>
+    );
   }
 
   const isMainPerson = participantId === state.main_person_participant_id;
@@ -128,6 +160,7 @@ export default function HWDYKPlayPage() {
 
     return (
       <div className="max-w-lg mx-auto py-8 space-y-6">
+        {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
         {/* Header */}
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-500">
@@ -138,7 +171,7 @@ export default function HWDYKPlayPage() {
               timeLeft <= 10 ? "text-red-500 animate-pulse" : "text-gray-700 dark:text-gray-300"
             }`}
           >
-            {timeLeft}s
+            {Math.ceil(timeLeft)}s
           </div>
         </div>
 
@@ -148,7 +181,7 @@ export default function HWDYKPlayPage() {
             className={`h-2 rounded-full transition-all duration-1000 ${
               timeLeft <= 10 ? "bg-red-500" : "bg-purple-600"
             }`}
-            style={{ width: `${(timeLeft / 60) * 100}%` }}
+            style={{ width: `${Math.min(100, (timeLeft / duration) * 100)}%` }}
           />
         </div>
 
@@ -192,18 +225,20 @@ export default function HWDYKPlayPage() {
               <button
                 key={choice.id}
                 onClick={() => handleGuess(choice.id)}
-                disabled={timeLeft === 0}
+                disabled={timeLeft <= 0}
                 className={`w-full px-5 py-4 text-left rounded-xl border-2 transition ${
                   selectedChoice === choice.id
                     ? "border-purple-500 bg-purple-50 dark:bg-purple-900/30"
                     : "border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700"
-                } ${timeLeft === 0 ? "opacity-50 cursor-not-allowed" : ""}`}
+                } ${timeLeft <= 0 ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 {choice.text}
               </button>
             ))}
-            {timeLeft === 0 && (
-              <p className="text-center text-red-500 font-medium">Time's up!</p>
+            {timeLeft <= 0 && (
+              <p className="text-center text-red-500 font-medium" role="status">
+                Time's up!
+              </p>
             )}
           </div>
         )}

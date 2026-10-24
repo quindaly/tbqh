@@ -18,6 +18,12 @@ DEFAULT_GAME_CONFIG = {
 
 # How long guessers get on each live question.
 GUESS_SECONDS = 30
+# A guess that reaches the server this long after the deadline still counts
+# (clock/latency slack); anything later is rejected.
+GUESS_GRACE_SECONDS = 1.0
+# Points for fooling another player with your fake answer (party mode).
+FOOL_POINTS = 50
+CORRECT_POINTS = 100
 
 # Longest wrong answer the main person (or AI) may put on a card.
 MAX_CHOICE_LEN = 120

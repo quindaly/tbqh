@@ -154,7 +154,7 @@ def _hwdyk_live(
     The server owns the clock: whichever request arrives first after a deadline
     ends the phase (see hwdyk_phases), so no scheduler is needed."""
     exp = _get_hwdyk_experience(db, experience_id)
-    if hwdyk_phases.advance_if_expired(db, exp.id) == "generate":
+    if hwdyk.advance(db, exp.id) == "generate":
         background_tasks.add_task(_run_generation_task, exp.id)
     db.refresh(exp)
     return exp
@@ -575,9 +575,10 @@ def submit_mc_guess(
     experience_id: str,
     round_id: str,
     body: MCGuessBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.submit_mc_guess(
         db,
         exp,
@@ -591,26 +592,27 @@ def submit_mc_guess(
 def reveal_hwdyk_round(
     experience_id: str,
     round_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
-    return {"ok": True}
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    return hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
 
 
 @router.post("/experiences/{experience_id}/rounds/{round_id}/hwdyk-advance")
 def advance_hwdyk_round(
     experience_id: str,
     round_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.advance_round(db, exp, _uuid_or_404(round_id))
 
 
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")
-def get_hwdyk_leaderboard(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
+def get_hwdyk_leaderboard(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     # Check if a replay (child) experience exists
     child = (
         db.query(ExperienceInstance)

@@ -767,6 +767,7 @@ export async function getHWDYKState(experienceId: string) {
     experience_id: string;
     experience_type: string;
     game_state: string;
+    state_version: number;
     mode: string;
     current_round: number;
     max_rounds: number;
@@ -777,7 +778,13 @@ export async function getHWDYKState(experienceId: string) {
       round_number: number;
       status: string;
       question_text: string;
+      question_text_self?: string;
+      /** Server-measured seconds left in the guessing window. */
+      seconds_remaining: number;
       time_remaining_seconds: number;
+      duration_seconds: number;
+      eligible_participant_ids: string[];
+      guessed_participant_ids: string[];
       is_locked: boolean;
       guesses_submitted: number;
       total_guessers: number;
@@ -832,7 +839,7 @@ export async function revealHWDYKRound(experienceId: string, roundId: string) {
 }
 
 export async function advanceHWDYKRound(experienceId: string, roundId: string) {
-  return apiFetch<{ ok: boolean; is_last: boolean }>(
+  return apiFetch<{ ok: boolean; is_last: boolean; advanced: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-advance`,
     { method: "POST" }
   );

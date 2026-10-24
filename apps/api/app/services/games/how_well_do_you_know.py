@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +27,9 @@ from app.services.games.hwdyk_questions import (
 from app.services.games.sharing import generate_join_code, generate_share_url
 from app.services.games.hwdyk_common import (
     DEFAULT_GAME_CONFIG,
+    CORRECT_POINTS,
+    FOOL_POINTS,
+    GUESS_GRACE_SECONDS,
     GUESS_SECONDS,
     MAX_CHOICE_LEN,
     MAX_REGENERATIONS,
@@ -1171,6 +1174,86 @@ def lock_party_mode(
 
 
 # ---------- live gameplay ----------
+#
+# Each round has a server-owned guessing window (``guess_deadline_at``, 30s by
+# default) and a roster of eligible guessers frozen when the round starts. A
+# round ends exactly once, by whichever comes first: every eligible player has
+# guessed, or the deadline passes. Both paths go through ``_reveal_locked`` under
+# the experience row lock, so a simultaneous last guess, timeout poll and manual
+# reveal cannot reveal twice or award anything twice.
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def guess_seconds(experience: ExperienceInstance) -> int:
+    return int((experience.game_config or {}).get("guess_seconds", GUESS_SECONDS))
+
+
+def _eligible_ids(db: Session, experience: ExperienceInstance) -> list[str]:
+    """Everyone in the game except the main person, in a stable order."""
+    return sorted(
+        str(p.id)
+        for p in _get_participants(db, experience)
+        if p.id != experience.main_person_participant_id
+    )
+
+
+def _round_eligible(
+    db: Session, experience: ExperienceInstance, game_round: GameRound
+) -> list[str]:
+    # Rounds started before rosters were frozen fall back to the live roster.
+    if game_round.eligible_participant_ids is not None:
+        return list(game_round.eligible_participant_ids)
+    return _eligible_ids(db, experience)
+
+
+def _round_deadline(game_round: GameRound) -> datetime | None:
+    if game_round.guess_deadline_at is not None:
+        return game_round.guess_deadline_at
+    if game_round.started_at is not None:
+        return game_round.started_at + timedelta(
+            seconds=game_round.timer_duration or GUESS_SECONDS
+        )
+    return None
+
+
+def _activate_round(
+    experience: ExperienceInstance,
+    game_round: GameRound,
+    eligible: list[str],
+    now: datetime,
+) -> None:
+    seconds = guess_seconds(experience)
+    game_round.status = "active"
+    game_round.started_at = now
+    game_round.timer_duration = seconds
+    game_round.guess_deadline_at = now + timedelta(seconds=seconds)
+    game_round.eligible_participant_ids = eligible
+    game_round.round_locked_at = None
+    experience.current_round = game_round.round_number
+
+
+def _current_round(db: Session, experience: ExperienceInstance) -> GameRound | None:
+    return (
+        db.query(GameRound)
+        .filter(
+            GameRound.experience_instance_id == experience.id,
+            GameRound.round_number == experience.current_round,
+        )
+        .populate_existing()
+        .first()
+    )
+
+
+def _guessed_ids(db: Session, game_round: GameRound) -> set[str]:
+    return {
+        str(pid)
+        for (pid,) in db.query(GameMCGuess.participant_id).filter(
+            GameMCGuess.game_round_id == game_round.id
+        )
+    }
 
 
 def start_live_game(
@@ -1179,8 +1262,13 @@ def start_live_game(
     host_participant_id: uuid.UUID,
 ) -> None:
     _verify_host(db, host_participant_id, experience)
+    experience = _lock_experience(db, experience.id)
 
-    # Activate round 1
+    # Idempotent: a double click on "Start" must not restart round 1.
+    if experience.game_state == "round_active":
+        db.commit()
+        return
+
     first_round = (
         db.query(GameRound)
         .filter(
@@ -1195,17 +1283,13 @@ def start_live_game(
             detail="No rounds found",
         )
 
-    first_round.status = "active"
-    first_round.started_at = datetime.now(timezone.utc)
-    experience.current_round = 1
-    db.flush()
-
-    transition_state(db, experience, "round_active")
+    transition_state(db, experience, "round_active")  # 409 unless ready_to_start
+    _activate_round(experience, first_round, _eligible_ids(db, experience), _now())
     db.commit()
 
 
 def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
-    """Build full game state payload for HWDYK polling."""
+    """Build full game state payload for HWDYK polling (read-only)."""
     participants = _get_participants(db, experience)
     config = experience.game_config or DEFAULT_GAME_CONFIG
 
@@ -1223,6 +1307,7 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
         "experience_id": str(experience.id),
         "experience_type": experience.experience_type,
         "game_state": experience.game_state,
+        "state_version": experience.state_version or 0,
         "mode": config.get("mode", "default"),
         "current_round": experience.current_round,
         "max_rounds": experience.max_rounds,
@@ -1239,26 +1324,13 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
     }
 
     if experience.game_state in ("round_active", "round_reveal"):
-        game_round = (
-            db.query(GameRound)
-            .filter(
-                GameRound.experience_instance_id == experience.id,
-                GameRound.round_number == experience.current_round,
-            )
-            .first()
-        )
+        game_round = _current_round(db, experience)
         if game_round:
-            # Check timer expiry
-            if game_round.status == "active" and not game_round.round_locked_at:
-                _check_and_lock_timer(db, game_round)
-
-            # Calculate time remaining
-            time_remaining = 60
-            if game_round.started_at:
-                elapsed = (
-                    datetime.now(timezone.utc) - game_round.started_at
-                ).total_seconds()
-                time_remaining = max(0, game_round.timer_duration - elapsed)
+            now = _now()
+            deadline = _round_deadline(game_round)
+            seconds_remaining = 0.0
+            if game_round.status == "active" and deadline is not None:
+                seconds_remaining = max(0.0, (deadline - now).total_seconds())
 
             # Get choices (sorted by display_order)
             choices = (
@@ -1278,10 +1350,8 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
                 .all()
             )
 
-            # Non-main-person participants count (eligible guessers)
-            non_main = [
-                p for p in participants if p.id != experience.main_person_participant_id
-            ]
+            eligible = _round_eligible(db, experience, game_round)
+            guessed = {str(g.participant_id) for g in mc_guesses}
 
             round_payload: dict = {
                 "round_id": str(game_round.id),
@@ -1293,10 +1363,18 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
                     else format_question_self(game_round.question_text)
                 ),
                 "question_text_self": format_question_self(game_round.question_text),
-                "time_remaining_seconds": int(time_remaining),
+                # Server-measured countdown; clients count down from this.
+                "seconds_remaining": round(seconds_remaining, 1),
+                "time_remaining_seconds": int(seconds_remaining),
+                "duration_seconds": game_round.timer_duration or GUESS_SECONDS,
+                "deadline_at": deadline.isoformat() if deadline else None,
+                "server_now": now.isoformat(),
                 "is_locked": game_round.round_locked_at is not None,
-                "guesses_submitted": len(mc_guesses),
-                "total_guessers": len(non_main),
+                # Who may guess (frozen at round start) and who already has.
+                "eligible_participant_ids": eligible,
+                "guessed_participant_ids": sorted(guessed & set(eligible)),
+                "guesses_submitted": len(guessed & set(eligible)),
+                "total_guessers": len(eligible),
             }
 
             if experience.game_state == "round_active":
@@ -1348,18 +1426,94 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
     return payload
 
 
-def _check_and_lock_timer(db: Session, game_round: GameRound) -> bool:
-    if game_round.status != "active":
-        return False
-    if game_round.started_at is None:
+def _reveal_locked(
+    db: Session,
+    experience: ExperienceInstance,
+    round_id: uuid.UUID,
+    reason: str,
+) -> bool:
+    """End a round's guessing and show the answer. Exactly-once.
+
+    Caller holds the experience row lock. Returns False (doing nothing) if the
+    round was already revealed or is no longer the live round, which is what
+    makes concurrent "last guess", timeout and manual reveals harmless.
+    Scores are derived from the guesses at read time, so revealing awards
+    nothing and there is nothing to double count."""
+    game_round = (
+        db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
+    )
+    if (
+        game_round is None
+        or game_round.status != "active"
+        or experience.game_state != "round_active"
+        or experience.current_round != game_round.round_number
+    ):
+        db.commit()
         return False
 
-    elapsed = (datetime.now(timezone.utc) - game_round.started_at).total_seconds()
-    if elapsed >= (game_round.timer_duration or 60):
-        game_round.round_locked_at = datetime.now(timezone.utc)
-        db.flush()
-        return True
-    return False
+    now = _now()
+    if game_round.round_locked_at is None:
+        game_round.round_locked_at = now
+    game_round.status = "revealed"
+    game_round.revealed_at = now
+    db.flush()
+    transition_state(db, experience, "round_reveal")
+    log_event(
+        db,
+        "hwdyk_round_revealed",
+        session_id=experience.session_id,
+        experience_instance_id=experience.id,
+        payload={
+            "round_number": game_round.round_number,
+            "reason": reason,
+            "guesses": len(_guessed_ids(db, game_round)),
+            "eligible": len(_round_eligible(db, experience, game_round)),
+        },
+    )
+    db.commit()
+    return True
+
+
+def close_round_if_due(
+    db: Session, experience_id: uuid.UUID, now: datetime | None = None
+) -> bool:
+    """Reveal the live round once its guessing window has closed.
+
+    Called from every live request (like the prep-phase clock), so a round ends
+    within a poll or two of its deadline with nothing scheduled. Returns True if
+    this call revealed the round."""
+    now = now or _now()
+    experience = (
+        db.query(ExperienceInstance)
+        .filter(ExperienceInstance.id == experience_id)
+        .populate_existing()
+        .first()
+    )
+    if experience is None or experience.game_state != "round_active":
+        db.commit()
+        return False
+    game_round = _current_round(db, experience)
+    if game_round is None or game_round.status != "active":
+        db.commit()
+        return False
+    deadline = _round_deadline(game_round)
+    if deadline is None or now < deadline + timedelta(seconds=GUESS_GRACE_SECONDS):
+        db.commit()
+        return False
+
+    experience = _lock_experience(db, experience_id, skip_locked=True)
+    if experience is None:  # another request is already handling it
+        return False
+    return _reveal_locked(db, experience, game_round.id, reason="timeout")
+
+
+def advance(db: Session, experience_id: uuid.UUID) -> str | None:
+    """Move any overdue timed phase of this game along (prep or live round).
+
+    Returns ``"generate"`` if AI choice generation should now be run."""
+    result = phases.advance_if_expired(db, experience_id)
+    close_round_if_due(db, experience_id)
+    return result
 
 
 def submit_mc_guess(
@@ -1376,33 +1530,23 @@ def submit_mc_guess(
             detail="Main person cannot guess",
         )
 
-    game_round = db.get(GameRound, round_id)
+    # Serialise guesses, the timeout and reveals for this game.
+    experience = _lock_experience(db, experience.id)
+
+    game_round = (
+        db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
+    )
     if not game_round or game_round.experience_instance_id != experience.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Round not found"
         )
 
-    if game_round.status != "active":
+    if str(participant_id) not in _round_eligible(db, experience, game_round):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Round is not active"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You're not a guesser in this round",
         )
 
-    # Check if round is locked (timer expired)
-    if game_round.round_locked_at:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Time has expired for this round",
-        )
-
-    # Verify choice belongs to this round
-    choice = db.get(GameChoice, choice_id)
-    if not choice or choice.game_round_id != round_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid choice for this round",
-        )
-
-    # Check duplicate guess
     existing = (
         db.query(GameMCGuess)
         .filter(
@@ -1412,110 +1556,100 @@ def submit_mc_guess(
         .first()
     )
     if existing:
+        if existing.selected_choice_id == choice_id:
+            # A retried request after a lost response: same answer, same result.
+            db.commit()
+            return {"ok": True, "is_correct": existing.is_correct, "all_guessed": False}
+        raise _conflict("already_guessed", "You already submitted a guess for this round")
+
+    deadline = _round_deadline(game_round)
+    over = (
+        game_round.status != "active"
+        or experience.game_state != "round_active"
+        or experience.current_round != game_round.round_number
+        or game_round.round_locked_at is not None
+    )
+    if not over and deadline is not None:
+        if _now() >= deadline + timedelta(seconds=GUESS_GRACE_SECONDS):
+            # Too late. End the round now so everyone moves on together.
+            _reveal_locked(db, experience, game_round.id, reason="timeout")
+            over = True
+    if over:
+        raise _conflict("round_closed", "Time's up for this question")
+
+    # Verify choice belongs to this round and is one of the cards on screen
+    choice = db.get(GameChoice, choice_id)
+    if (
+        not choice
+        or choice.game_round_id != round_id
+        or choice.display_order is None
+    ):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You already submitted a guess for this round",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid choice for this round",
         )
 
     is_correct = choice.is_correct
-    points = 100 if is_correct else 0
-
     guess = GameMCGuess(
         game_round_id=round_id,
         participant_id=participant_id,
         selected_choice_id=choice_id,
         is_correct=is_correct,
-        points_awarded=points,
+        points_awarded=CORRECT_POINTS if is_correct else 0,
     )
     db.add(guess)
-    db.flush()
-
-    # Check if all players have guessed
-    participants = _get_participants(db, experience)
-    non_main = [
-        p for p in participants if p.id != experience.main_person_participant_id
-    ]
-    guess_count = (
-        db.query(GameMCGuess).filter(GameMCGuess.game_round_id == round_id).count()
-    )
-    all_guessed = guess_count >= len(non_main)
-
-    if all_guessed:
-        game_round.round_locked_at = datetime.now(timezone.utc)
+    try:
         db.flush()
+    except IntegrityError:  # unique (round, participant): lost a race with ourselves
+        db.rollback()
+        raise _conflict("already_guessed", "You already submitted a guess for this round")
+
+    # Everyone eligible has guessed -> end the round now instead of waiting.
+    eligible = set(_round_eligible(db, experience, game_round))
+    all_guessed = bool(eligible) and eligible <= _guessed_ids(db, game_round)
+    if all_guessed:
+        _reveal_locked(db, experience, game_round.id, reason="all_guessed")
+    else:
         db.commit()
-        # Auto-reveal when all players have submitted
-        reveal_round(db, experience, round_id)
-        return {"ok": True, "is_correct": is_correct, "all_guessed": True}
 
-    db.flush()
-    db.commit()
-
-    return {"ok": True, "is_correct": is_correct, "all_guessed": False}
+    return {"ok": True, "is_correct": is_correct, "all_guessed": all_guessed}
 
 
 def reveal_round(
     db: Session,
     experience: ExperienceInstance,
     round_id: uuid.UUID,
-) -> None:
-    game_round = db.get(GameRound, round_id)
+) -> dict:
+    """Reveal on request (host's fallback button). Idempotent."""
+    experience = _lock_experience(db, experience.id)
+    game_round = (
+        db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
+    )
     if not game_round or game_round.experience_instance_id != experience.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Round not found"
         )
 
-    # Idempotent: if already revealed, skip
-    if game_round.status == "revealed" or experience.game_state == "round_reveal":
-        return
+    # Already revealed (or the game has moved on): nothing to do.
+    if game_round.status in ("revealed", "completed"):
+        db.commit()
+        return {"ok": True, "revealed": False}
 
-    # Calculate Party Mode fool points
-    config = experience.game_config or DEFAULT_GAME_CONFIG
-    mode = config.get("mode", "default")
+    if experience.game_state != "round_active" or (
+        experience.current_round != game_round.round_number
+    ):
+        raise _conflict("round_not_active", "That round isn't the live round")
 
-    if mode == "party":
-        mc_guesses = (
-            db.query(GameMCGuess).filter(GameMCGuess.game_round_id == round_id).all()
-        )
-        # For each fake answer, count how many players (other than the creator) picked it
-        fake_choices = (
-            db.query(GameChoice)
-            .filter(
-                GameChoice.game_round_id == round_id,
-                GameChoice.source_type == "player_fake",
-            )
-            .all()
-        )
-        for fake in fake_choices:
-            if not fake.created_by_participant_id:
-                continue
-            fooled_count = sum(
-                1
-                for g in mc_guesses
-                if g.selected_choice_id == fake.id
-                and g.participant_id != fake.created_by_participant_id
-            )
-            # Award 50 points per fooled player to the fake author
-            if fooled_count > 0:
-                # Find or create a bonus record - add to existing guess points
-                author_guess = next(
-                    (
-                        g
-                        for g in mc_guesses
-                        if g.participant_id == fake.created_by_participant_id
-                    ),
-                    None,
-                )
-                if author_guess:
-                    author_guess.points_awarded += fooled_count * 50
-                    db.flush()
+    # Can't be used to cut guessing short.
+    deadline = _round_deadline(game_round)
+    eligible = set(_round_eligible(db, experience, game_round))
+    everyone_in = bool(eligible) and eligible <= _guessed_ids(db, game_round)
+    time_up = deadline is not None and _now() >= deadline
+    if not (game_round.round_locked_at or everyone_in or time_up):
+        raise _conflict("round_in_progress", "Guessing is still open")
 
-    game_round.status = "revealed"
-    game_round.revealed_at = datetime.now(timezone.utc)
-    db.flush()
-
-    transition_state(db, experience, "round_reveal")
-    db.commit()
+    revealed = _reveal_locked(db, experience, round_id, reason="manual")
+    return {"ok": True, "revealed": revealed}
 
 
 def advance_round(
@@ -1523,23 +1657,33 @@ def advance_round(
     experience: ExperienceInstance,
     round_id: uuid.UUID,
 ) -> dict:
-    game_round = db.get(GameRound, round_id)
+    """Move from a revealed round to the next one (or the final scores). Idempotent:
+    a repeated call for a round that has already been advanced changes nothing."""
+    experience = _lock_experience(db, experience.id)
+    game_round = (
+        db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
+    )
     if not game_round or game_round.experience_instance_id != experience.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Round not found"
         )
 
+    is_last = game_round.round_number >= experience.max_rounds
+
+    if (
+        experience.game_state != "round_reveal"
+        or experience.current_round != game_round.round_number
+    ):
+        db.commit()
+        return {"ok": True, "is_last": is_last, "advanced": False}
+
     game_round.status = "completed"
     db.flush()
 
-    # Check if last round
-    is_last = game_round.round_number >= experience.max_rounds
-
     if is_last:
         transition_state(db, experience, "completed")
-        experience.completed_at = datetime.now(timezone.utc)
+        experience.completed_at = _now()
     else:
-        # Activate next round
         next_round = (
             db.query(GameRound)
             .filter(
@@ -1548,15 +1692,19 @@ def advance_round(
             )
             .first()
         )
-        if next_round:
-            next_round.status = "active"
-            next_round.started_at = datetime.now(timezone.utc)
-            experience.current_round = next_round.round_number
-            db.flush()
-            transition_state(db, experience, "round_active")
+        if next_round is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Next round is missing",
+            )
+        # Same guessers as the round before: the roster is fixed once play begins.
+        _activate_round(
+            experience, next_round, _round_eligible(db, experience, game_round), _now()
+        )
+        transition_state(db, experience, "round_active")
 
     db.commit()
-    return {"ok": True, "is_last": is_last}
+    return {"ok": True, "is_last": is_last, "advanced": True}
 
 
 # ---------- scoring ----------
@@ -1594,7 +1742,7 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
             )
             .all()
         )
-        score = sum(g.points_awarded for g in guesses)
+        score = sum(g.points_awarded for g in guesses)  # correct guesses
         correct_count = sum(1 for g in guesses if g.is_correct)
 
         # Calculate average response time for tie-breaking
@@ -1639,6 +1787,9 @@ def compute_hwdyk_scores(db: Session, experience_id: uuid.UUID) -> list[dict]:
                 )
                 fool_count += fooled
             entry["fool_count"] = fool_count
+            # Bonus for fooling others is derived here from the guesses, not
+            # stored, so revealing a round twice can never award it twice.
+            entry["score"] = score + fool_count * FOOL_POINTS
 
         results.append(entry)
 

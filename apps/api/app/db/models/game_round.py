@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, CheckConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, UUIDPKMixin
@@ -50,6 +50,14 @@ class GameRound(Base, UUIDPKMixin):
     round_locked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Server-owned end of the guessing window for this round.
+    guess_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Who may guess this round, frozen when the round starts (list of participant
+    # id strings). "Everyone has guessed" is measured against this, so players
+    # joining, leaving or being renamed mid-round can't change it.
+    eligible_participant_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint(

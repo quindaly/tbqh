@@ -33,13 +33,16 @@ export function useCountdown(
   receivedAt: number
 ): number | null {
   const [now, setNow] = useState(() => Date.now());
+  // Depend on primitives so callers can pass a fresh object every render.
+  const hasClock = !!phase;
+  const secondsRemaining = phase?.seconds_remaining;
 
   useEffect(() => {
-    if (!phase) return;
+    if (!hasClock) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, [phase, receivedAt]);
+  }, [hasClock, secondsRemaining, receivedAt]);
 
   if (!phase) return null;
   return secondsLeft(phase.seconds_remaining, receivedAt, now);
