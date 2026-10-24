@@ -21,7 +21,9 @@ def generate_share_url(
 ) -> str:
     if game_slug == "how-well-do-you-know":
         return f"{settings.WEB_BASE_URL}/games/how-well-do-you-know?code={join_code}"
-    return f"{settings.WEB_BASE_URL}/games/experience/{experience_instance_id}/lobby?code={join_code}"
+    # Point at the join page, not the lobby: someone opening an invite link has
+    # no participant yet, and the join page is what turns the code into one.
+    return f"{settings.WEB_BASE_URL}/games/who-knows-who?code={join_code}"
 
 
 def lookup_session_by_join_code(db: Session, join_code: str) -> SessionModel | None:
