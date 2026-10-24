@@ -1,15 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ApiError,
+  PhaseInfo,
+  getHWDYKLobby,
   getReviewChoices,
   editChoice,
   regenerateChoice,
   confirmChoices,
 } from "@/lib/api";
 import { ChoiceSaver, ChoiceState, SaveFailure } from "@/lib/choiceSaver";
+import { formatClock, useCountdown } from "@/lib/countdown";
+import { usePolling } from "@/lib/usePolling";
 
 const MAX_REGENERATIONS = 3;
 const MAX_CHOICE_LEN = 120;
@@ -66,6 +70,10 @@ export default function ReviewPage() {
   const [confirming, setConfirming] = useState(false);
   const [regenerating, setRegenerating] = useState<Record<string, boolean>>({});
   const [regenUsed, setRegenUsed] = useState<Record<string, number>>({});
+  const [phase, setPhase] = useState<PhaseInfo | null>(null);
+  const [phaseReceivedAt, setPhaseReceivedAt] = useState(0);
+  const [timeUp, setTimeUp] = useState(false);
+  const timeUpHandled = useRef(false);
   const [participantId] = useState(() =>
     typeof window !== "undefined"
       ? localStorage.getItem(`game_pid_${experienceId}`) || ""
@@ -94,6 +102,14 @@ export default function ReviewPage() {
 
   useEffect(() => () => saver.dispose(), [saver]);
 
+  const remaining = useCountdown(phase, phaseReceivedAt);
+  const lobbyPath = `/games/experience/${experienceId}/hwdyk-lobby`;
+
+  const applyPhase = useCallback((p: PhaseInfo | null) => {
+    setPhase(p);
+    setPhaseReceivedAt(Date.now());
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoadError("");
     try {
@@ -103,6 +119,7 @@ export default function ReviewPage() {
         router.replace(`/games/experience/${experienceId}/hwdyk-lobby`);
         return;
       }
+      applyPhase(res.phase);
       setRounds(res.rounds);
       saver.load(
         res.rounds.flatMap((r) =>
@@ -119,11 +136,37 @@ export default function ReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [experienceId, participantId, router, saver]);
+  }, [experienceId, participantId, router, saver, applyPhase]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Keep the clock honest, and leave when the game moves on without us
+  // (time ran out and the server locked the saved choices, or setup was reset).
+  usePolling(
+    useCallback(async () => {
+      const lobby = await getHWDYKLobby(experienceId);
+      if (lobby.game_state !== "main_person_reviewing_choices") {
+        router.replace(lobbyPath);
+        return;
+      }
+      applyPhase(lobby.phase);
+    }, [experienceId, router, lobbyPath, applyPhase]),
+    { baseMs: 3000 }
+  );
+
+  // Time's up: send anything still being typed (the server takes it only if it
+  // lands inside its short grace window), then hand over to the lobby.
+  useEffect(() => {
+    if (remaining === null || remaining > 0 || timeUpHandled.current) return;
+    timeUpHandled.current = true;
+    setTimeUp(true);
+    (async () => {
+      await saver.flush();
+      router.push(lobbyPath);
+    })();
+  }, [remaining, saver, router, lobbyPath]);
 
   async function handleRegenerate(choice: Choice) {
     const st = saver.get(choice.id);
@@ -221,8 +264,10 @@ export default function ReviewPage() {
   const anyProblem = states.some(
     (s) => s.status === "invalid" || s.status === "error" || s.status === "stale"
   );
-  const confirmDisabled = confirming || anyBusy || anyProblem;
-  const confirmLabel = confirming
+  const confirmDisabled = confirming || anyBusy || anyProblem || timeUp;
+  const confirmLabel = timeUp
+    ? "Time's up — locking in your saved changes…"
+    : confirming
     ? "Locking choices…"
     : anyBusy
     ? "Saving your changes…"
@@ -233,10 +278,20 @@ export default function ReviewPage() {
   return (
     <div className="max-w-2xl mx-auto py-12 space-y-8">
       <div className="text-center space-y-2">
+        {remaining !== null && (
+          <p
+            className={`text-lg font-mono font-bold ${
+              remaining <= 10 ? "text-red-500" : "text-gray-700 dark:text-gray-300"
+            }`}
+            aria-label={`${Math.ceil(remaining)} seconds left`}
+          >
+            {formatClock(remaining)}
+          </p>
+        )}
         <h1 className="text-2xl font-bold">Review Answer Choices</h1>
         <p className="text-gray-500">
           Check the AI-generated wrong answers. Change any that don't look right — your
-          edits save automatically.
+          edits save automatically. When time runs out, the game uses what's saved.
         </p>
       </div>
 

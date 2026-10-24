@@ -541,10 +541,23 @@ export async function joinHWDYKGame(
   });
 }
 
+/** Countdown for a timed phase, as measured by the server when it replied. */
+export interface PhaseInfo {
+  name: string;
+  seconds_remaining: number;
+  duration_seconds: number;
+  deadline_at: string;
+  server_now: string;
+}
+
 export async function getHWDYKLobby(experienceId: string) {
   return apiFetch<{
     experience_id: string;
     game_state: string;
+    state_version: number;
+    phase: PhaseInfo | null;
+    progress: { answered: number; total: number } | null;
+    notice: { code: string; message: string } | null;
     game_slug: string;
     mode: string;
     join_code: string;
@@ -584,7 +597,14 @@ export async function startHWDYKSetup(experienceId: string, participantId: strin
 
 export async function getMainPersonQuestions(experienceId: string) {
   return apiFetch<{
-    questions: { id: string; prompt_text: string; round_number: number }[];
+    game_state: string;
+    phase: PhaseInfo | null;
+    questions: {
+      id: string;
+      prompt_text: string;
+      round_number: number;
+      answered: boolean;
+    }[];
   }>(`/experiences/${experienceId}/main-person-questions`);
 }
 
@@ -610,6 +630,7 @@ export async function submitMainPersonAnswer(
 export async function getReviewChoices(experienceId: string, participantId: string) {
   return apiFetch<{
     game_state: string;
+    phase: PhaseInfo | null;
     rounds: {
       round_id: string;
       round_number: number;

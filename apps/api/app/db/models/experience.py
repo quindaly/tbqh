@@ -52,6 +52,18 @@ class ExperienceInstance(Base, UUIDPKMixin, TimestampMixin):
     main_person_participant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("participants.id"), nullable=True
     )
+    # Bumped on every state transition so clients can ignore stale poll replies.
+    state_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    # When the current phase began, and (for timed phases) when it ends. The
+    # server owns these; clients only display the time remaining.
+    phase_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    phase_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(

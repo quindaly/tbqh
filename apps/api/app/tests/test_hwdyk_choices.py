@@ -5,83 +5,20 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
 from app.db.models.game_choice import GameChoice
 from app.db.models.game_round import GameRound
 from app.services.games import how_well_do_you_know as hwdyk
+from app.services.games import hwdyk_phases as phases
 
-LLM = "app.services.games.how_well_do_you_know.call_llm_json"
-
-
-@pytest.fixture(scope="module")
-def engine():
-    from app.core.config import settings
-
-    return create_engine(settings.DATABASE_URL, echo=False)
-
-
-@pytest.fixture(scope="module")
-def tables(engine):
-    Base.metadata.create_all(engine)
-    yield
-
-
-@pytest.fixture()
-def db(engine, tables):
-    conn = engine.connect()
-    txn = conn.begin()
-    session = sessionmaker(bind=conn, expire_on_commit=False)()
-    yield session
-    session.close()
-    txn.rollback()
-    conn.close()
-
-
-def _fake_llm(**kwargs):
-    return {"wrong_answers": ["Tacos", "Sushi", "Burgers"]}
-
-
-def make_game(db, mode="default", num_questions=2, players=("Bea", "Cal")):
-    """Create a HWDYK game with the host as main person, up to the review step
-    (default mode) or fake-answer collection (party mode)."""
-    created = hwdyk.create_game(db, None, "Quin", mode=mode, num_questions=num_questions)
-    exp = db.get(hwdyk.ExperienceInstance, uuid.UUID(created["experience_instance_id"]))
-    host_id = uuid.UUID(created["participant_id"])
-    joined = [
-        uuid.UUID(
-            hwdyk.join_game(db, created["join_code"], name)["participant_id"]
-        )
-        for name in players
-    ]
-    hwdyk.select_main_person(db, exp, host_id, host_id)
-    hwdyk.start_setup(db, exp, host_id)
-    prompts = hwdyk.get_main_person_questions(db, exp.id)
-    with patch(LLM, side_effect=_fake_llm):
-        for i, q in enumerate(prompts):
-            hwdyk.submit_main_person_answer(
-                db, exp, uuid.UUID(q["id"]), host_id, f"Pizza {i}"
-            )
-    db.refresh(exp)
-    return exp, host_id, joined
-
-
-def wrong_choices(db, exp):
-    rounds = (
-        db.query(GameRound)
-        .filter(GameRound.experience_instance_id == exp.id)
-        .order_by(GameRound.round_number)
-        .all()
-    )
-    return [
-        db.query(GameChoice)
-        .filter(GameChoice.game_round_id == r.id, GameChoice.is_correct.is_(False))
-        .order_by(GameChoice.created_at, GameChoice.id)
-        .all()
-        for r in rounds
-    ]
+from app.tests.hwdyk_testkit import (  # noqa: E402
+    GEN_LLM,
+    LLM,
+    make_game,
+    new_game,
+    answer,
+    wrong_choices,
+)
 
 
 def http_error(exc: HTTPException):
@@ -109,8 +46,9 @@ def test_duplicate_ai_answers_are_deduped_and_topped_up(db):
     q = hwdyk.get_main_person_questions(db, exp.id)[0]
     # AI repeats itself and echoes the correct answer
     bad = {"wrong_answers": ["Tacos", "tacos ", "Pizza", "Pizza"]}
-    with patch(LLM, return_value=bad):
-        hwdyk.submit_main_person_answer(db, exp, uuid.UUID(q["id"]), host, "Pizza")
+    hwdyk.submit_main_person_answer(db, exp, uuid.UUID(q["id"]), host, "Pizza")
+    with patch(GEN_LLM, return_value=bad):
+        phases.run_generation(db, exp.id)
     texts = [c.choice_text for c in wrong_choices(db, exp)[0]]
     assert len(texts) == 3
     assert len({t.casefold() for t in texts}) == 3
@@ -125,8 +63,9 @@ def test_ai_failure_still_yields_playable_review(db):
     hwdyk.select_main_person(db, exp, host, host)
     hwdyk.start_setup(db, exp, host)
     q = hwdyk.get_main_person_questions(db, exp.id)[0]
-    with patch(LLM, side_effect=RuntimeError("down")):
-        hwdyk.submit_main_person_answer(db, exp, uuid.UUID(q["id"]), host, "Pizza")
+    hwdyk.submit_main_person_answer(db, exp, uuid.UUID(q["id"]), host, "Pizza")
+    with patch(GEN_LLM, side_effect=RuntimeError("down")):
+        phases.run_generation(db, exp.id)
     assert exp.game_state == "main_person_reviewing_choices"
     assert len(wrong_choices(db, exp)[0]) == 3
 
@@ -229,7 +168,13 @@ def test_only_main_person_can_edit(db):
 def test_cannot_edit_the_correct_answer(db):
     exp, host, _ = make_game(db)
     correct = (
-        db.query(GameChoice).filter(GameChoice.is_correct.is_(True)).first()
+        db.query(GameChoice)
+        .join(GameRound, GameChoice.game_round_id == GameRound.id)
+        .filter(
+            GameRound.experience_instance_id == exp.id,
+            GameChoice.is_correct.is_(True),
+        )
+        .first()
     )
     with pytest.raises(HTTPException) as e:
         hwdyk.edit_choice(db, exp, correct.id, host, "Hack")

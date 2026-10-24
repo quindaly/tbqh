@@ -25,6 +25,18 @@ from app.services.games.hwdyk_questions import (
     format_question_other,
 )
 from app.services.games.sharing import generate_join_code, generate_share_url
+from app.services.games.hwdyk_common import (
+    DEFAULT_GAME_CONFIG,
+    GUESS_SECONDS,
+    MAX_CHOICE_LEN,
+    MAX_REGENERATIONS,
+    clean_text as _clean_text,
+    conflict as _conflict,
+    lock_experience as _lock_experience,
+    norm as _norm,
+    unique_wrong_answers as _unique_wrong_answers,
+)
+from app.services.games import hwdyk_phases as phases
 from app.services.games.state import transition_state
 from app.services.llm.client import call_llm_json
 from app.services.llm.prompts import (
@@ -36,12 +48,6 @@ from app.services.telemetry.events import log_event
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GAME_CONFIG = {
-    "mode": "default",
-    "num_questions": 5,
-    "intimacy_level": "personal",
-    "min_answer_length": 3,
-}
 
 
 # ---------- helpers ----------
@@ -269,9 +275,22 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
     host = next((p for p in participants if p.role == "host"), None)
     config = experience.game_config or DEFAULT_GAME_CONFIG
 
+    progress = None
+    if experience.game_state == phases.ANSWERING:
+        progress = {
+            "answered": phases.answered_count(db, experience),
+            "total": int(config.get("num_questions", 5)),
+        }
+
     return {
         "experience_id": str(experience.id),
         "game_state": experience.game_state,
+        "state_version": experience.state_version or 0,
+        # Countdown for timed prep phases (None otherwise), measured by the server.
+        "phase": phases.phase_info(experience),
+        "progress": progress,
+        # Set when a timed-out/invalid preparation sent everyone back to the lobby.
+        "notice": config.get("notice"),
         "game_slug": "how-well-do-you-know",
         "mode": config.get("mode", "default"),
         "join_code": session.join_code,
@@ -322,6 +341,8 @@ def start_setup(
     host_participant_id: uuid.UUID,
 ) -> dict:
     _verify_host(db, host_participant_id, experience)
+    # Lock so a double click can't create the question set twice.
+    experience = _lock_experience(db, experience.id)
 
     if not experience.main_person_participant_id:
         raise HTTPException(
@@ -339,11 +360,15 @@ def start_setup(
             )
             .count()
         )
+        db.commit()
         return {"prompts_created": existing_count}
 
     transition_state(db, experience, "main_person_answering")
+    phases.start_phase_clock(experience, phases.answer_seconds(experience))
 
-    config = experience.game_config or DEFAULT_GAME_CONFIG
+    config = dict(experience.game_config or DEFAULT_GAME_CONFIG)
+    config.pop("notice", None)  # a fresh attempt clears the last failure message
+    experience.game_config = config
     num_q = config.get("num_questions", 5)
     questions = select_questions(num_q)
 
@@ -390,11 +415,20 @@ def get_main_person_questions(db: Session, experience_id: uuid.UUID) -> list[dic
         .order_by(PromptInstance.round_number)
         .all()
     )
+    # Answers are saved one by one, so a reload resumes where the main person
+    # left off instead of asking questions they already answered.
+    answered = {
+        r.source_prompt_instance_id
+        for r in db.query(GameRound).filter(
+            GameRound.experience_instance_id == experience_id
+        )
+    }
     return [
         {
             "id": str(p.id),
             "prompt_text": format_question_self(p.prompt_text),
             "round_number": p.round_number,
+            "answered": p.id in answered,
         }
         for p in prompts
     ]
@@ -407,18 +441,43 @@ def submit_main_person_answer(
     participant_id: uuid.UUID,
     answer_text: str,
 ) -> dict:
+    """Save one answer (each is kept as soon as it is submitted).
+
+    Returns ``needs_generation`` when this was the last answer in default mode:
+    the caller should then run :func:`hwdyk_phases.run_generation` (as a
+    background task) so the request returns immediately."""
     _verify_main_person(experience, participant_id)
 
     config = experience.game_config or DEFAULT_GAME_CONFIG
     min_len = config.get("min_answer_length", 3)
-    if len(answer_text.strip()) < min_len:
+    cleaned_answer = _clean_text(answer_text)
+    if len(cleaned_answer) < min_len:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Answer must be at least {min_len} characters",
         )
+    if len(cleaned_answer) > MAX_CHOICE_LEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Answer must be {MAX_CHOICE_LEN} characters or fewer",
+        )
+
+    experience = _lock_experience(db, experience.id)
+    _verify_main_person(experience, participant_id)
+    if experience.game_state != phases.ANSWERING:
+        raise _conflict(
+            "answering_closed",
+            "The time for answering questions is over."
+            if experience.game_state != "lobby"
+            else "Setup was reset. Wait for the host to start again.",
+        )
 
     prompt = db.get(PromptInstance, prompt_instance_id)
-    if not prompt or prompt.experience_instance_id != experience.id:
+    if (
+        not prompt
+        or prompt.experience_instance_id != experience.id
+        or prompt.prompt_type != "hwdyk_main_person_question"
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found"
         )
@@ -433,10 +492,7 @@ def submit_main_person_answer(
         .first()
     )
     if existing_round:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This question has already been answered",
-        )
+        raise _conflict("already_answered", "This question has already been answered")
 
     # Create GameRound
     game_round = GameRound(
@@ -447,7 +503,7 @@ def submit_main_person_answer(
         answering_participant_id=participant_id,
         status="setup",
         question_text=prompt.prompt_text,
-        timer_duration=60,
+        timer_duration=GUESS_SECONDS,
     )
     db.add(game_round)
     db.flush()
@@ -455,7 +511,7 @@ def submit_main_person_answer(
     # Create correct choice
     correct_choice = GameChoice(
         game_round_id=game_round.id,
-        choice_text=answer_text.strip(),
+        choice_text=cleaned_answer,
         is_correct=True,
         source_type="main_person",
         created_by_participant_id=participant_id,
@@ -466,164 +522,20 @@ def submit_main_person_answer(
     game_round.correct_choice_id = correct_choice.id
     db.flush()
 
-    # Check if all questions answered
-    config = experience.game_config or DEFAULT_GAME_CONFIG
     num_q = config.get("num_questions", 5)
-    answered_count = (
-        db.query(GameRound)
-        .filter(GameRound.experience_instance_id == experience.id)
-        .count()
-    )
-    all_answered = answered_count >= num_q
+    all_answered = phases.answered_count(db, experience) >= num_q
 
+    needs_generation = False
     if all_answered:
-        mode = config.get("mode", "default")
-        if mode == "default":
-            _generate_distractors(db, experience)
-        else:
-            transition_state(db, experience, "players_submitting_fake_answers")
+        needs_generation = phases.finish_answering(db, experience) == "generate"
+    else:
+        db.commit()
 
-    db.commit()
-
-    return {"ok": True, "all_answered": all_answered}
-
-
-# ---------- answer-text helpers ----------
-
-# Longest wrong answer the main person (or AI) may put on a card.
-MAX_CHOICE_LEN = 120
-# How many times a single wrong answer may be regenerated by AI.
-MAX_REGENERATIONS = 3
-# Used only when the AI call fails; the main person can edit these on review.
-_FALLBACK_DISTRACTORS = ["Option A", "Option B", "Option C", "Option D", "Option E"]
-
-
-def _clean_text(text: object) -> str:
-    """Trim and collapse internal whitespace so 'Pizza ' and 'pizza' compare equal."""
-    return " ".join(str(text or "").split())
-
-
-def _norm(text: object) -> str:
-    return _clean_text(text).casefold()
-
-
-def _unique_wrong_answers(
-    candidates: list, taken: list[str], limit: int | None = None
-) -> list[str]:
-    """Clean candidates, dropping blanks and anything equal to ``taken`` or an
-    earlier candidate (case-insensitive). The database has a unique constraint on
-    (round, choice_text); inserting a duplicate would otherwise fail the request."""
-    seen = {_norm(t) for t in taken}
-    out: list[str] = []
-    for cand in candidates:
-        text = _clean_text(cand)[:MAX_CHOICE_LEN].strip()
-        if not text or _norm(text) in seen:
-            continue
-        seen.add(_norm(text))
-        out.append(text)
-        if limit is not None and len(out) >= limit:
-            break
-    return out
-
-
-def _lock_experience(db: Session, experience_id: uuid.UUID) -> ExperienceInstance:
-    """Re-read the experience row with a row lock so concurrent edits, confirms
-    and state changes are applied one at a time, each seeing the others' result."""
-    exp = (
-        db.query(ExperienceInstance)
-        .filter(ExperienceInstance.id == experience_id)
-        .with_for_update()
-        .populate_existing()
-        .first()
-    )
-    if not exp:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
-        )
-    return exp
-
-
-def _conflict(code: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={"code": code, "message": message},
-    )
-
-
-# ---------- Default Mode: AI distractor generation ----------
-
-
-def _generate_distractors(db: Session, experience: ExperienceInstance) -> None:
-    transition_state(db, experience, "ai_generating_choices")
-
-    config = experience.game_config or DEFAULT_GAME_CONFIG
-    intimacy = config.get("intimacy_level", "personal")
-
-    rounds = (
-        db.query(GameRound)
-        .filter(GameRound.experience_instance_id == experience.id)
-        .order_by(GameRound.round_number)
-        .all()
-    )
-
-    schema = distractor_generation_schema()
-
-    for game_round in rounds:
-        correct_choice = (
-            db.query(GameChoice)
-            .filter(
-                GameChoice.game_round_id == game_round.id,
-                GameChoice.is_correct.is_(True),
-            )
-            .first()
-        )
-        if not correct_choice:
-            continue
-
-        try:
-            result = call_llm_json(
-                system_prompt=DISTRACTOR_GENERATION_SYSTEM,
-                user_prompt=DISTRACTOR_GENERATION_USER.format(
-                    question_text=format_question_self(game_round.question_text),
-                    correct_answer=correct_choice.choice_text,
-                    num_distractors=3,
-                    intimacy_level=intimacy,
-                    person_context="Not available",
-                ),
-                json_schema=schema,
-                temperature=0.8,
-            )
-            candidates = list(result.get("wrong_answers", []))
-        except Exception:
-            logger.exception(
-                "Failed to generate distractors for round %s", game_round.id
-            )
-            candidates = []
-
-        wrong_answers = _unique_wrong_answers(
-            candidates, taken=[correct_choice.choice_text], limit=3
-        )
-        if len(wrong_answers) < 3:
-            # Top up so every round is playable even when the AI call failed or
-            # returned duplicates; the main person can edit these on review.
-            wrong_answers += _unique_wrong_answers(
-                _FALLBACK_DISTRACTORS,
-                taken=[correct_choice.choice_text, *wrong_answers],
-                limit=3 - len(wrong_answers),
-            )
-
-        for ans in wrong_answers:
-            db.add(
-                GameChoice(
-                    game_round_id=game_round.id,
-                    choice_text=ans,
-                    is_correct=False,
-                    source_type="ai_generated",
-                )
-            )
-
-    db.flush()
-    transition_state(db, experience, "main_person_reviewing_choices")
+    return {
+        "ok": True,
+        "all_answered": all_answered,
+        "needs_generation": needs_generation,
+    }
 
 
 # ---------- Default Mode: review / edit choices ----------
@@ -935,69 +847,7 @@ def confirm_choices(
             "choices_locked", "These answer choices can't be confirmed right now."
         )
 
-    rounds = (
-        db.query(GameRound)
-        .filter(GameRound.experience_instance_id == experience.id)
-        .order_by(GameRound.round_number)
-        .all()
-    )
-
-    all_choices: dict[uuid.UUID, list[GameChoice]] = {}
-    for r in rounds:
-        all_choices[r.id] = (
-            db.query(GameChoice)
-            .filter(GameChoice.game_round_id == r.id)
-            .with_for_update()
-            .populate_existing()
-            .order_by(GameChoice.created_at, GameChoice.id)
-            .all()
-        )
-
-    if expected_revisions is not None:
-        for choices in all_choices.values():
-            for c in choices:
-                seen = expected_revisions.get(str(c.id))
-                if seen is not None and seen != (c.revision or 0):
-                    raise _conflict(
-                        "stale_revision",
-                        "Your answers changed since this screen loaded. Reload and check them before confirming.",
-                    )
-
-    for r in rounds:
-        choices = all_choices[r.id]
-        correct_count = sum(1 for c in choices if c.is_correct)
-        wrong = [c for c in choices if not c.is_correct]
-
-        if correct_count != 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Round {r.round_number} must have exactly 1 correct answer",
-            )
-        if len(wrong) < 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Round {r.round_number} must have at least 2 wrong answers",
-            )
-        if any(not _clean_text(c.choice_text) for c in choices):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Round {r.round_number} has a blank answer",
-            )
-        if len({_norm(c.choice_text) for c in choices}) != len(choices):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Round {r.round_number} has two matching answers",
-            )
-
-        # Shuffle display order
-        indices = list(range(len(choices)))
-        random.shuffle(indices)
-        for i, c in enumerate(choices):
-            c.display_order = indices[i]
-
-    db.flush()
-    transition_state(db, experience, "ready_to_start")
-    db.commit()
+    phases.lock_in_choices(db, experience, expected_revisions)
 
 
 # ---------- Party Mode: fake answer collection ----------

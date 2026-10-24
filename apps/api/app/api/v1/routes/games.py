@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import get_current_user_id, require_auth
 from app.db.models.experience import ExperienceInstance
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.services.games import catalog, scoring
 from app.services.games import who_knows_who as wkw
 from app.services.games import how_well_do_you_know as hwdyk
+from app.services.games import hwdyk_phases
 from app.services.games.state import get_game_state_payload
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["games"])
 
@@ -128,6 +132,31 @@ def _get_experience(db: Session, experience_id: str) -> ExperienceInstance:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
         )
+    return exp
+
+
+def _run_generation_task(experience_id: uuid.UUID) -> None:
+    """Background task: write the AI wrong answers (slow) outside any request."""
+    db = SessionLocal()
+    try:
+        hwdyk_phases.run_generation(db, experience_id)
+    except Exception:
+        logger.exception("Choice generation failed for %s", experience_id)
+    finally:
+        db.close()
+
+
+def _hwdyk_live(
+    db: Session, experience_id: str, background_tasks: BackgroundTasks
+) -> ExperienceInstance:
+    """Load a Hot Seat game after moving any overdue prep phase along.
+
+    The server owns the clock: whichever request arrives first after a deadline
+    ends the phase (see hwdyk_phases), so no scheduler is needed."""
+    exp = _get_hwdyk_experience(db, experience_id)
+    if hwdyk_phases.advance_if_expired(db, exp.id) == "generate":
+        background_tasks.add_task(_run_generation_task, exp.id)
+    db.refresh(exp)
     return exp
 
 
@@ -351,8 +380,8 @@ def replay_game(experience_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/experiences/{experience_id}/hwdyk/lobby")
-def get_hwdyk_lobby(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
+def get_hwdyk_lobby(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.get_lobby_payload(db, exp)
 
 
@@ -383,36 +412,46 @@ def start_hwdyk_setup(
 
 
 @router.get("/experiences/{experience_id}/main-person-questions")
-def get_main_person_questions(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
-    return {"questions": hwdyk.get_main_person_questions(db, exp.id)}
+def get_main_person_questions(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    return {
+        "game_state": exp.game_state,
+        "phase": hwdyk_phases.phase_info(exp),
+        "questions": hwdyk.get_main_person_questions(db, exp.id),
+    }
 
 
 @router.post("/experiences/{experience_id}/main-person-answer")
 def submit_main_person_answer(
     experience_id: str,
     body: MainPersonAnswerBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.submit_main_person_answer(
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    result = hwdyk.submit_main_person_answer(
         db,
         exp,
         _participant_uuid(body.prompt_instance_id),
         _participant_uuid(body.participant_id),
         body.answer_text,
     )
+    if result.pop("needs_generation", False):
+        background_tasks.add_task(_run_generation_task, exp.id)
+    return result
 
 
 @router.get("/experiences/{experience_id}/review-choices")
 def get_review_choices(
     experience_id: str,
+    background_tasks: BackgroundTasks,
     participant_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return {
         "game_state": exp.game_state,
+        "phase": hwdyk_phases.phase_info(exp),
         "rounds": hwdyk.get_review_data(db, exp.id, _participant_uuid(participant_id)),
     }
 
@@ -422,9 +461,10 @@ def edit_choice(
     experience_id: str,
     choice_id: str,
     body: EditChoiceBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     result = hwdyk.edit_choice(
         db,
         exp,
@@ -441,9 +481,10 @@ def regenerate_choice(
     experience_id: str,
     choice_id: str,
     body: RegenerateBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.regenerate_choice(
         db,
         exp,
@@ -457,9 +498,10 @@ def regenerate_choice(
 def confirm_choices(
     experience_id: str,
     body: ConfirmChoicesBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     hwdyk.confirm_choices(
         db, exp, _participant_uuid(body.participant_id), expected_revisions=body.revisions
     )
@@ -523,8 +565,8 @@ def start_live_game(
 
 
 @router.get("/experiences/{experience_id}/hwdyk/state")
-def get_hwdyk_state(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
+def get_hwdyk_state(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.get_round_state(db, exp)
 
 
