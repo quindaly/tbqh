@@ -88,8 +88,23 @@ class MCGuessBody(BaseModel):
 # ---- helpers ----
 
 
+def _uuid_or_404(value: str, detail: str = "Not found") -> uuid.UUID:
+    """Parse a UUID taken from the URL path.
+
+    A malformed ID (an old, mistyped or truncated link) must produce a normal
+    404. Letting ``uuid.UUID`` raise would surface as an unhandled 500, which
+    is sent without CORS headers and so looks like a network error in the
+    browser instead of an error the page can handle.
+    """
+    try:
+        return uuid.UUID(value)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+
 def _get_experience(db: Session, experience_id: str) -> ExperienceInstance:
-    exp = db.get(ExperienceInstance, uuid.UUID(experience_id))
+    exp_id = _uuid_or_404(experience_id, "Experience not found")
+    exp = db.get(ExperienceInstance, exp_id)
     if not exp or exp.experience_type != "who_knows_who":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
@@ -98,7 +113,8 @@ def _get_experience(db: Session, experience_id: str) -> ExperienceInstance:
 
 
 def _get_hwdyk_experience(db: Session, experience_id: str) -> ExperienceInstance:
-    exp = db.get(ExperienceInstance, uuid.UUID(experience_id))
+    exp_id = _uuid_or_404(experience_id, "Experience not found")
+    exp = db.get(ExperienceInstance, exp_id)
     if not exp or exp.experience_type != "how_well_do_you_know":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
@@ -107,7 +123,8 @@ def _get_hwdyk_experience(db: Session, experience_id: str) -> ExperienceInstance
 
 
 def _get_any_experience(db: Session, experience_id: str) -> ExperienceInstance:
-    exp = db.get(ExperienceInstance, uuid.UUID(experience_id))
+    exp_id = _uuid_or_404(experience_id, "Experience not found")
+    exp = db.get(ExperienceInstance, exp_id)
     if not exp:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
@@ -265,7 +282,7 @@ def submit_guess(
     return wkw.submit_guess(
         db,
         experience=exp,
-        round_id=uuid.UUID(round_id),
+        round_id=_uuid_or_404(round_id),
         guessing_participant_id=uuid.UUID(body.guessing_participant_id),
         guessed_participant_id=uuid.UUID(body.guessed_participant_id),
     )
@@ -278,7 +295,7 @@ def reveal_round(
     db: Session = Depends(get_db),
 ):
     exp = _get_experience(db, experience_id)
-    return wkw.reveal_round(db, experience=exp, round_id=uuid.UUID(round_id))
+    return wkw.reveal_round(db, experience=exp, round_id=_uuid_or_404(round_id))
 
 
 @router.post("/experiences/{experience_id}/rounds/{round_id}/advance")
@@ -288,7 +305,7 @@ def advance_round(
     db: Session = Depends(get_db),
 ):
     exp = _get_experience(db, experience_id)
-    return wkw.advance_round(db, experience=exp, round_id=uuid.UUID(round_id))
+    return wkw.advance_round(db, experience=exp, round_id=_uuid_or_404(round_id))
 
 
 # ---- leaderboard ----
@@ -376,7 +393,7 @@ def get_review_choices(
 ):
     return {
         "rounds": hwdyk.get_review_data(
-            db, uuid.UUID(experience_id), uuid.UUID(participant_id)
+            db, _uuid_or_404(experience_id, "Experience not found"), uuid.UUID(participant_id)
         )
     }
 
@@ -390,7 +407,7 @@ def edit_choice(
 ):
     exp = _get_hwdyk_experience(db, experience_id)
     hwdyk.edit_choice(
-        db, exp, uuid.UUID(choice_id), uuid.UUID(body.participant_id), body.new_text
+        db, exp, _uuid_or_404(choice_id), uuid.UUID(body.participant_id), body.new_text
     )
     return {"ok": True}
 
@@ -404,7 +421,7 @@ def regenerate_choice(
 ):
     exp = _get_hwdyk_experience(db, experience_id)
     return hwdyk.regenerate_choice(
-        db, exp, uuid.UUID(choice_id), uuid.UUID(body.participant_id)
+        db, exp, _uuid_or_404(choice_id), uuid.UUID(body.participant_id)
     )
 
 
@@ -427,7 +444,7 @@ def get_fake_answer_questions(
 ):
     return {
         "questions": hwdyk.get_fake_answer_questions(
-            db, uuid.UUID(experience_id), uuid.UUID(participant_id)
+            db, _uuid_or_404(experience_id, "Experience not found"), uuid.UUID(participant_id)
         )
     }
 
@@ -450,7 +467,7 @@ def submit_fake_answer(
 
 @router.get("/experiences/{experience_id}/fake-answer-progress")
 def get_fake_answer_progress(experience_id: str, db: Session = Depends(get_db)):
-    return hwdyk.get_fake_answer_progress(db, uuid.UUID(experience_id))
+    return hwdyk.get_fake_answer_progress(db, _uuid_or_404(experience_id, "Experience not found"))
 
 
 @router.post("/experiences/{experience_id}/lock-party-mode")
@@ -492,7 +509,7 @@ def submit_mc_guess(
     return hwdyk.submit_mc_guess(
         db,
         exp,
-        uuid.UUID(round_id),
+        _uuid_or_404(round_id),
         uuid.UUID(body.participant_id),
         uuid.UUID(body.choice_id),
     )
@@ -505,7 +522,7 @@ def reveal_hwdyk_round(
     db: Session = Depends(get_db),
 ):
     exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.reveal_round(db, exp, uuid.UUID(round_id))
+    hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
     return {"ok": True}
 
 
@@ -516,7 +533,7 @@ def advance_hwdyk_round(
     db: Session = Depends(get_db),
 ):
     exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.advance_round(db, exp, uuid.UUID(round_id))
+    return hwdyk.advance_round(db, exp, _uuid_or_404(round_id))
 
 
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")

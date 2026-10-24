@@ -21,6 +21,16 @@ export default function GameSlugPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Invite links look like /games/who-knows-who?code=ABC123: jump straight to
+  // the join form with the code filled in.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (code) {
+      setJoinCode(code.toUpperCase().slice(0, 6));
+      setMode("join");
+    }
+  }, []);
+
   async function handleCreate() {
     if (!displayName.trim()) {
       setError("Enter a display name");

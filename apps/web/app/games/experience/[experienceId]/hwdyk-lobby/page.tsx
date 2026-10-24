@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getHWDYKLobby,
@@ -8,6 +8,12 @@ import {
   startHWDYKSetup,
   startLiveGame,
 } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
+import {
+  ConnectionBanner,
+  LobbyNotFound,
+  LobbyUnreachable,
+} from "../../../_components/LobbyStatus";
 
 interface Participant {
   id: string;
@@ -20,7 +26,6 @@ export default function HWDYKLobbyPage() {
   const router = useRouter();
 
   const [lobby, setLobby] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [selectedMainPerson, setSelectedMainPerson] = useState<string>("");
@@ -31,64 +36,56 @@ export default function HWDYKLobbyPage() {
     return localStorage.getItem(`game_pid_${experienceId}`) || "";
   });
 
+  // Throws on failure so usePolling can stop on a 404 and back off on outages.
   const fetchLobby = useCallback(async () => {
-    try {
-      const data = await getHWDYKLobby(experienceId);
-      setLobby(data);
+    const data = await getHWDYKLobby(experienceId);
+    setLobby(data);
 
-      // Auto-recover participantId for replay: if we don't have one for this
-      // experience, check if any stored PID matches a participant in this lobby
-      let pid = participantId;
-      if (!pid && data.participants?.length) {
-        const knownPids = new Set(
-          data.participants.map((p: Participant) => p.id)
-        );
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key?.startsWith("game_pid_")) {
-            const val = localStorage.getItem(key) || "";
-            if (knownPids.has(val)) {
-              localStorage.setItem(`game_pid_${experienceId}`, val);
-              pid = val;
-              setParticipantId(val);
-              break;
-            }
+    // Auto-recover participantId for replay: if we don't have one for this
+    // experience, check if any stored PID matches a participant in this lobby
+    let pid = participantId;
+    if (!pid && data.participants?.length) {
+      const knownPids = new Set(
+        data.participants.map((p: Participant) => p.id)
+      );
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("game_pid_")) {
+          const val = localStorage.getItem(key) || "";
+          if (knownPids.has(val)) {
+            localStorage.setItem(`game_pid_${experienceId}`, val);
+            pid = val;
+            setParticipantId(val);
+            break;
           }
         }
       }
+    }
 
-      // Route based on state
-      if (data.game_state === "main_person_answering") {
-        if (pid === data.main_person_participant_id) {
-          router.push(`/games/experience/${experienceId}/answer`);
-        }
-        // Others stay in lobby waiting
-      } else if (data.game_state === "ai_generating_choices") {
-        // Main person waits, then goes to review
-      } else if (data.game_state === "main_person_reviewing_choices") {
-        if (pid === data.main_person_participant_id) {
-          router.push(`/games/experience/${experienceId}/review`);
-        }
-      } else if (data.game_state === "players_submitting_fake_answers") {
-        if (pid !== data.main_person_participant_id) {
-          router.push(`/games/experience/${experienceId}/fake-answers`);
-        }
-      } else if (data.game_state === "round_active" || data.game_state === "round_reveal") {
-        router.push(`/games/experience/${experienceId}/hwdyk-play`);
-      } else if (data.game_state === "completed") {
-        router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
+    // Route based on state
+    if (data.game_state === "main_person_answering") {
+      if (pid === data.main_person_participant_id) {
+        router.push(`/games/experience/${experienceId}/answer`);
       }
-    } catch {
-    } finally {
-      setLoading(false);
+      // Others stay in lobby waiting
+    } else if (data.game_state === "ai_generating_choices") {
+      // Main person waits, then goes to review
+    } else if (data.game_state === "main_person_reviewing_choices") {
+      if (pid === data.main_person_participant_id) {
+        router.push(`/games/experience/${experienceId}/review`);
+      }
+    } else if (data.game_state === "players_submitting_fake_answers") {
+      if (pid !== data.main_person_participant_id) {
+        router.push(`/games/experience/${experienceId}/fake-answers`);
+      }
+    } else if (data.game_state === "round_active" || data.game_state === "round_reveal") {
+      router.push(`/games/experience/${experienceId}/hwdyk-play`);
+    } else if (data.game_state === "completed") {
+      router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
     }
   }, [experienceId, router, participantId]);
 
-  useEffect(() => {
-    fetchLobby();
-    const interval = setInterval(fetchLobby, 3000);
-    return () => clearInterval(interval);
-  }, [fetchLobby]);
+  const { failures, fatal, gaveUp, retry } = usePolling(fetchLobby);
 
   async function handleSelectMainPerson() {
     if (!selectedMainPerson) return;
@@ -148,8 +145,16 @@ export default function HWDYKLobbyPage() {
     }
   }
 
-  if (loading || !lobby) {
-    return <p className="text-center py-16 text-gray-500">Loading lobby…</p>;
+  if (fatal) {
+    return <LobbyNotFound />;
+  }
+
+  if (!lobby) {
+    return gaveUp ? (
+      <LobbyUnreachable onRetry={retry} />
+    ) : (
+      <p className="text-center py-16 text-gray-500">Loading lobby…</p>
+    );
   }
 
   const isHost = participantId === lobby.host_id;
@@ -169,6 +174,8 @@ export default function HWDYKLobbyPage() {
           </span>
         </div>
       </div>
+
+      {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
 
       {/* Join code & share link */}
       {lobby.game_state !== "round_active" && lobby.game_state !== "round_reveal" && lobby.game_state !== "completed" && (
