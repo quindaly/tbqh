@@ -1,4 +1,4 @@
-"""GameChoice model — stores answer options for How Well Do You Know rounds."""
+"""GameChoice model — stores answer options for The Hot Seat rounds."""
 
 from __future__ import annotations
 

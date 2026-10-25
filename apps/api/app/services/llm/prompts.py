@@ -108,9 +108,9 @@ Restricted categories: {restricted_categories}
 
 Should this question be reworded to better fit this group? Respond with EXACTLY the JSON keys: should_reword, reworded_question, reason."""
 
-# --- Distractor Generation for How Well Do You Know ---
+# --- Distractor Generation for The Hot Seat ---
 
-DISTRACTOR_GENERATION_SYSTEM = """You generate plausible wrong answers for a social trivia game called "How Well Do You Know [Person]?"
+DISTRACTOR_GENERATION_SYSTEM = """You generate plausible wrong answers for a social trivia game called "The Hot Seat"
 
 Given a personal question and the correct answer about someone, generate believable but incorrect alternative answers.
 

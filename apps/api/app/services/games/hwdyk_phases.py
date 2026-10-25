@@ -1,4 +1,4 @@
-"""Timed preparation phases for How Well Do You Know (the "Hot Seat").
+"""Timed preparation phases for The Hot Seat.
 
 Preparation has three steps, and the server owns the clock for all of them:
 

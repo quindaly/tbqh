@@ -1,4 +1,4 @@
-"""How Well Do You Know [Person]? game orchestration service."""
+"""The Hot Seat (slug: how-well-do-you-know) game orchestration service."""
 
 from __future__ import annotations
 

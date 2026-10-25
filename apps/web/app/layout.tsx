@@ -6,7 +6,7 @@ import NavBar from "./NavBar";
 
 export const metadata: Metadata = {
   title: "TBQH — Group Discussion Prompts",
-  description: "Personalized discussion questions for your group",
+  description: "Let’s get to know each other",
 };
 
 // Runs before the page paints so a saved Light or Dark choice never flashes

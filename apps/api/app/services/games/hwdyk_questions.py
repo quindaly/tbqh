@@ -1,4 +1,4 @@
-"""Question bank for How Well Do You Know [Person]? game.
+"""Question bank for The Hot Seat game.
 
 Questions use template placeholders for personalization:
   {poss}  — possessive: "your" (self) / "John's" (others)

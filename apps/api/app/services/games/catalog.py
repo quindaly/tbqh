@@ -13,7 +13,7 @@ GAMES = [
     {
         "id": "how-well-do-you-know",
         "slug": "how-well-do-you-know",
-        "display_name": "How Well Do You Know [Person]?",
+        "display_name": "The Hot Seat",
         "description": "One person answers personal questions. Everyone else guesses the correct answer from multiple choices.",
         "min_players": 3,
         "max_players": 20,

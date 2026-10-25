@@ -22,7 +22,7 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "round_active": ["round_reveal"],
     "round_reveal": ["round_active", "leaderboard", "completed"],
     "leaderboard": ["completed"],
-    # How Well Do You Know
+    # The Hot Seat
     # "lobby" is also a target here: a timed-out or invalid preparation returns
     # to a recoverable lobby state so the host can start setup again.
     "main_person_answering": [

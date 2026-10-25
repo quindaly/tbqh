@@ -498,7 +498,7 @@ export async function replayGame(experienceId: string) {
   }>(`/experiences/${experienceId}/replay`, { method: "POST" });
 }
 
-// ---- How Well Do You Know [Person]? ----
+// ---- The Hot Seat ----
 
 export async function createHWDYKGame(
   displayName: string,

@@ -1,4 +1,4 @@
-"""How Well Do You Know: persistence and safety of the answer-review phase."""
+"""The Hot Seat: persistence and safety of the answer-review phase."""
 
 import uuid
 from unittest.mock import patch
