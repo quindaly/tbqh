@@ -1,19 +1,22 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getHWDYKLobby,
+  returnToHWDYKLobby,
   selectMainPerson,
   startHWDYKSetup,
   startLiveGame,
 } from "@/lib/api";
+import { formatClock, useCountdown } from "@/lib/countdown";
 import { usePolling } from "@/lib/usePolling";
 import {
   ConnectionBanner,
   LobbyNotFound,
   LobbyUnreachable,
 } from "../../../_components/LobbyStatus";
+import { ConnectionFacts } from "../../../_components/ConnectionFacts";
 
 interface Participant {
   id: string;
@@ -21,11 +24,19 @@ interface Participant {
   role: string;
 }
 
+interface Absent {
+  id: string;
+  display_name: string;
+}
+
 export default function HWDYKLobbyPage() {
   const { experienceId } = useParams<{ experienceId: string }>();
   const router = useRouter();
 
   const [lobby, setLobby] = useState<any>(null);
+  // When the lobby data (and so its countdown) arrived, on this device's clock.
+  const [receivedAt, setReceivedAt] = useState(0);
+  const lastVersion = useRef(-1);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [selectedMainPerson, setSelectedMainPerson] = useState<string>("");
@@ -39,15 +50,20 @@ export default function HWDYKLobbyPage() {
   // Throws on failure so usePolling can stop on a 404 and back off on outages.
   const fetchLobby = useCallback(async () => {
     const data = await getHWDYKLobby(experienceId);
+    // Two polls can overlap; never let an older reply overwrite a newer state.
+    if (data.state_version < lastVersion.current) return;
+    lastVersion.current = data.state_version;
     setLobby(data);
+    setReceivedAt(Date.now());
 
     // Auto-recover participantId for replay: if we don't have one for this
     // experience, check if any stored PID matches a participant in this lobby
     let pid = participantId;
     if (!pid && data.participants?.length) {
-      const knownPids = new Set(
-        data.participants.map((p: Participant) => p.id)
-      );
+      const knownPids = new Set<string>([
+        ...data.participants.map((p: Participant) => p.id),
+        ...(data.absent_participants || []).map((p: Absent) => p.id),
+      ]);
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key?.startsWith("game_pid_")) {
@@ -62,16 +78,24 @@ export default function HWDYKLobbyPage() {
       }
     }
 
+    // In a replay lobby, someone who hasn't come back is not in this game, so
+    // they are never sent into its screens.
+    if ((data.absent_participants || []).some((p: Absent) => p.id === pid)) return;
+
     // Route based on state
+    // The main person is sent to their screen only while there is time left on
+    // the clock; in the last moments the server is still finalising, and sending
+    // them back would just bounce them between the two pages.
+    const timeLeft = data.phase ? data.phase.seconds_remaining > 0 : true;
     if (data.game_state === "main_person_answering") {
-      if (pid === data.main_person_participant_id) {
+      if (pid === data.main_person_participant_id && timeLeft) {
         router.push(`/games/experience/${experienceId}/answer`);
       }
       // Others stay in lobby waiting
     } else if (data.game_state === "ai_generating_choices") {
-      // Main person waits, then goes to review
+      // Everyone waits here; the main person is sent to review once it is ready
     } else if (data.game_state === "main_person_reviewing_choices") {
-      if (pid === data.main_person_participant_id) {
+      if (pid === data.main_person_participant_id && timeLeft) {
         router.push(`/games/experience/${experienceId}/review`);
       }
     } else if (data.game_state === "players_submitting_fake_answers") {
@@ -86,6 +110,7 @@ export default function HWDYKLobbyPage() {
   }, [experienceId, router, participantId]);
 
   const { failures, fatal, gaveUp, retry } = usePolling(fetchLobby);
+  const remaining = useCountdown(lobby?.phase, receivedAt);
 
   async function handleSelectMainPerson() {
     if (!selectedMainPerson) return;
@@ -93,6 +118,19 @@ export default function HWDYKLobbyPage() {
     setError("");
     try {
       await selectMainPerson(experienceId, participantId, selectedMainPerson);
+      await fetchLobby();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleJoinThisLobby() {
+    setActionLoading(true);
+    setError("");
+    try {
+      await returnToHWDYKLobby(experienceId, participantId);
       await fetchLobby();
     } catch (e: any) {
       setError(e.message);
@@ -159,6 +197,8 @@ export default function HWDYKLobbyPage() {
 
   const isHost = participantId === lobby.host_id;
   const isMainPerson = participantId === lobby.main_person_participant_id;
+  const isAbsent = !!lobby.absent_participants?.some((p: Absent) => p.id === participantId);
+  const playerCount = lobby.participants?.length || 0;
   const mainPersonName =
     lobby.participants?.find(
       (p: Participant) => p.id === lobby.main_person_participant_id
@@ -216,7 +256,7 @@ export default function HWDYKLobbyPage() {
       {/* Participants */}
       <div className="space-y-2">
         <h2 className="font-semibold">
-          Players ({lobby.participants?.length || 0})
+          {lobby.is_replay ? "Back in the lobby" : "Players"} ({playerCount})
         </h2>
         <ul className="space-y-1">
           {lobby.participants?.map((p: Participant) => (
@@ -238,76 +278,149 @@ export default function HWDYKLobbyPage() {
             </li>
           ))}
         </ul>
+        {lobby.is_replay && lobby.absent_participants?.length > 0 && (
+          <div className="pt-2">
+            <h3 className="text-sm text-gray-500">Not back yet</h3>
+            <ul className="space-y-1 pt-1">
+              {lobby.absent_participants.map((p: Absent) => (
+                <li
+                  key={p.id}
+                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-gray-400"
+                >
+                  <span>{p.display_name}</span>
+                  {p.id === participantId && (
+                    <span className="text-xs text-purple-500">(you)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {error && <p className="text-red-500 text-sm">{error}</p>}
+      {error && <p role="alert" className="text-red-500 text-sm">{error}</p>}
+
+      {/* A session member who hasn't come back to this replay lobby yet */}
+      {isAbsent && (
+        <div className="space-y-2">
+          {lobby.game_state === "lobby" ? (
+            <button
+              onClick={handleJoinThisLobby}
+              disabled={actionLoading}
+              className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+            >
+              {actionLoading ? "Joining…" : "Join this lobby"}
+            </button>
+          ) : (
+            <p className="text-center text-gray-500" role="status">
+              This game has already started without you. You can join the next one.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Why we're back in the lobby (time ran out, nothing playable) */}
+      {lobby.game_state === "lobby" && lobby.notice && (
+        <div
+          role="status"
+          className="rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200"
+        >
+          {lobby.notice.message}
+        </div>
+      )}
 
       {/* STATE: lobby — host selects main person & starts */}
       {lobby.game_state === "lobby" && isHost && (
         <div className="space-y-4">
-          {!lobby.main_person_participant_id && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Select who's in the hot seat:</label>
-              <select
-                value={selectedMainPerson}
-                onChange={(e) => setSelectedMainPerson(e.target.value)}
-                className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800"
-              >
-                <option value="">Choose a player…</option>
-                {lobby.participants?.map((p: Participant) => (
-                  <option key={p.id} value={p.id}>
-                    {p.display_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleSelectMainPerson}
-                disabled={!selectedMainPerson || actionLoading}
-                className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-              >
-                {actionLoading ? "Selecting…" : "Confirm Main Person"}
-              </button>
-            </div>
-          )}
+          <div className="space-y-2">
+            <label htmlFor="main-person" className="text-sm font-medium">
+              {lobby.main_person_participant_id
+                ? "Who's in the hot seat:"
+                : "Select who's in the hot seat:"}
+            </label>
+            <select
+              id="main-person"
+              value={selectedMainPerson || lobby.main_person_participant_id || ""}
+              onChange={(e) => setSelectedMainPerson(e.target.value)}
+              className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800"
+            >
+              <option value="">Choose a player…</option>
+              {lobby.participants?.map((p: Participant) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name}
+                  {p.id === lobby.previous_main_person_id ? " (last game's hot seat)" : ""}
+                </option>
+              ))}
+            </select>
+            {selectedMainPerson &&
+              selectedMainPerson !== lobby.main_person_participant_id && (
+                <button
+                  onClick={handleSelectMainPerson}
+                  disabled={actionLoading}
+                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                >
+                  {actionLoading ? "Selecting…" : "Confirm Main Person"}
+                </button>
+              )}
+          </div>
 
           {lobby.main_person_participant_id && (
-            <button
-              onClick={handleStartSetup}
-              disabled={actionLoading}
-              className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-            >
-              {actionLoading ? "Starting…" : "Start Setup"}
-            </button>
+            <>
+              <button
+                onClick={handleStartSetup}
+                disabled={actionLoading || playerCount < 2}
+                className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                {actionLoading ? "Starting…" : "Start Setup"}
+              </button>
+              {playerCount < 2 && (
+                <p className="text-center text-sm text-gray-500">
+                  Waiting for at least one more player.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* STATE: main_person_answering — others wait */}
-      {lobby.game_state === "main_person_answering" && !isMainPerson && (
+      {/* STATE: main_person_answering — everyone sees who and how long */}
+      {lobby.game_state === "main_person_answering" && (
         <div className="text-center py-4 space-y-2">
           <div className="animate-pulse text-purple-500 text-xl">✍️</div>
           <p className="text-gray-500">
-            {mainPersonName} is answering questions…
+            <span role="status">
+              {isMainPerson ? "You're" : `${mainPersonName} is`} answering questions
+            </span>
+            {remaining !== null && <span>, {formatClock(remaining)} remaining</span>}
           </p>
+          {lobby.progress && (
+            <p className="text-sm text-gray-400">
+              {lobby.progress.answered} of {lobby.progress.total} answered
+            </p>
+          )}
         </div>
       )}
 
-      {/* STATE: ai_generating_choices — everyone waits */}
+      {/* STATE: ai_generating_choices — everyone waits (no clock: the editing
+          time doesn't start until the choices are ready) */}
       {lobby.game_state === "ai_generating_choices" && (
         <div className="text-center py-4 space-y-2">
           <div className="animate-pulse text-purple-500">●●●</div>
-          <p className="text-gray-500">
-            AI is generating answer choices…
+          <p className="text-gray-500" role="status">
+            Generating answer choices…
           </p>
         </div>
       )}
 
-      {/* STATE: main_person_reviewing_choices — others wait */}
-      {lobby.game_state === "main_person_reviewing_choices" && !isMainPerson && (
+      {/* STATE: main_person_reviewing_choices */}
+      {lobby.game_state === "main_person_reviewing_choices" && (
         <div className="text-center py-4 space-y-2">
           <div className="animate-pulse text-purple-500 text-xl">🔍</div>
           <p className="text-gray-500">
-            {mainPersonName} is reviewing answer choices…
+            <span role="status">
+              {isMainPerson ? "You're" : `${mainPersonName} is`} reviewing answer choices
+            </span>
+            {remaining !== null && <span>, {formatClock(remaining)} remaining</span>}
           </p>
         </div>
       )}
@@ -325,8 +438,8 @@ export default function HWDYKLobbyPage() {
       {/* STATE: ready_to_start — host can launch */}
       {lobby.game_state === "ready_to_start" && (
         <div className="space-y-3">
-          <p className="text-center text-green-600 font-medium">
-            Everything's ready! 🎉
+          <p className="text-center text-green-600 font-medium" role="status">
+            Preparation complete 🎉
           </p>
           {isHost ? (
             <button
@@ -338,18 +451,22 @@ export default function HWDYKLobbyPage() {
             </button>
           ) : (
             <p className="text-center text-gray-500">
-              Waiting for host to start…
+              Waiting for the host to start the game…
             </p>
           )}
         </div>
       )}
 
       {/* Non-host waiting message for lobby state */}
-      {lobby.game_state === "lobby" && !isHost && (
+      {lobby.game_state === "lobby" && !isHost && !isAbsent && (
         <p className="text-center text-gray-500">
           Waiting for the host to configure and start…
         </p>
       )}
+
+      {/* Something to read while waiting. Last, so it never pushes the player
+          list, host controls, join code or timers around. */}
+      <ConnectionFacts />
     </div>
   );
 }

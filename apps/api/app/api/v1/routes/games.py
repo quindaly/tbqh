@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import get_current_user_id, require_auth
 from app.db.models.experience import ExperienceInstance
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.services.games import catalog, scoring
 from app.services.games import who_knows_who as wkw
 from app.services.games import how_well_do_you_know as hwdyk
+from app.services.games import hwdyk_phases
 from app.services.games.state import get_game_state_payload
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["games"])
 
@@ -68,10 +72,19 @@ class MainPersonAnswerBody(BaseModel):
 class EditChoiceBody(BaseModel):
     participant_id: str
     new_text: str
+    # Revision of the choice the client last saw; stale writes get a 409.
+    expected_revision: int | None = None
 
 
 class RegenerateBody(BaseModel):
     participant_id: str
+    expected_revision: int | None = None
+
+
+class ConfirmChoicesBody(BaseModel):
+    participant_id: str
+    # choice id -> revision the client has saved
+    revisions: dict[str, int] | None = None
 
 
 class FakeAnswerBody(BaseModel):
@@ -102,6 +115,16 @@ def _uuid_or_404(value: str, detail: str = "Not found") -> uuid.UUID:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
+def _participant_uuid(value: str) -> uuid.UUID:
+    """Parse a participant ID from a body/query. Malformed -> 400, not a 500."""
+    try:
+        return uuid.UUID(value)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid participant ID"
+        )
+
+
 def _get_experience(db: Session, experience_id: str) -> ExperienceInstance:
     exp_id = _uuid_or_404(experience_id, "Experience not found")
     exp = db.get(ExperienceInstance, exp_id)
@@ -109,6 +132,31 @@ def _get_experience(db: Session, experience_id: str) -> ExperienceInstance:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experience not found"
         )
+    return exp
+
+
+def _run_generation_task(experience_id: uuid.UUID) -> None:
+    """Background task: write the AI wrong answers (slow) outside any request."""
+    db = SessionLocal()
+    try:
+        hwdyk_phases.run_generation(db, experience_id)
+    except Exception:
+        logger.exception("Choice generation failed for %s", experience_id)
+    finally:
+        db.close()
+
+
+def _hwdyk_live(
+    db: Session, experience_id: str, background_tasks: BackgroundTasks
+) -> ExperienceInstance:
+    """Load a Hot Seat game after moving any overdue prep phase along.
+
+    The server owns the clock: whichever request arrives first after a deadline
+    ends the phase (see hwdyk_phases), so no scheduler is needed."""
+    exp = _get_hwdyk_experience(db, experience_id)
+    if hwdyk.advance(db, exp.id) == "generate":
+        background_tasks.add_task(_run_generation_task, exp.id)
+    db.refresh(exp)
     return exp
 
 
@@ -234,7 +282,7 @@ def start_collection(
     db: Session = Depends(get_db),
 ):
     exp = _get_experience(db, experience_id)
-    return wkw.start_answer_collection(db, exp, uuid.UUID(body.participant_id))
+    return wkw.start_answer_collection(db, exp, _participant_uuid(body.participant_id))
 
 
 @router.get("/experiences/{experience_id}/prompts")
@@ -253,8 +301,8 @@ def submit_answer(
     return wkw.submit_self_answer(
         db,
         experience=exp,
-        prompt_instance_id=uuid.UUID(body.prompt_instance_id),
-        participant_id=uuid.UUID(body.participant_id),
+        prompt_instance_id=_participant_uuid(body.prompt_instance_id),
+        participant_id=_participant_uuid(body.participant_id),
         answer_text=body.answer_text,
     )
 
@@ -283,8 +331,8 @@ def submit_guess(
         db,
         experience=exp,
         round_id=_uuid_or_404(round_id),
-        guessing_participant_id=uuid.UUID(body.guessing_participant_id),
-        guessed_participant_id=uuid.UUID(body.guessed_participant_id),
+        guessing_participant_id=_participant_uuid(body.guessing_participant_id),
+        guessed_participant_id=_participant_uuid(body.guessed_participant_id),
     )
 
 
@@ -332,8 +380,8 @@ def replay_game(experience_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/experiences/{experience_id}/hwdyk/lobby")
-def get_hwdyk_lobby(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
+def get_hwdyk_lobby(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.get_lobby_payload(db, exp)
 
 
@@ -347,8 +395,8 @@ def select_main_person(
     hwdyk.select_main_person(
         db,
         exp,
-        uuid.UUID(body.host_participant_id),
-        uuid.UUID(body.main_person_participant_id),
+        _participant_uuid(body.host_participant_id),
+        _participant_uuid(body.main_person_participant_id),
     )
     return {"ok": True}
 
@@ -360,41 +408,51 @@ def start_hwdyk_setup(
     db: Session = Depends(get_db),
 ):
     exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.start_setup(db, exp, uuid.UUID(body.participant_id))
+    return hwdyk.start_setup(db, exp, _participant_uuid(body.participant_id))
 
 
 @router.get("/experiences/{experience_id}/main-person-questions")
-def get_main_person_questions(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
-    return {"questions": hwdyk.get_main_person_questions(db, exp.id)}
+def get_main_person_questions(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    return {
+        "game_state": exp.game_state,
+        "phase": hwdyk_phases.phase_info(exp),
+        "questions": hwdyk.get_main_person_questions(db, exp.id),
+    }
 
 
 @router.post("/experiences/{experience_id}/main-person-answer")
 def submit_main_person_answer(
     experience_id: str,
     body: MainPersonAnswerBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.submit_main_person_answer(
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    result = hwdyk.submit_main_person_answer(
         db,
         exp,
-        uuid.UUID(body.prompt_instance_id),
-        uuid.UUID(body.participant_id),
+        _participant_uuid(body.prompt_instance_id),
+        _participant_uuid(body.participant_id),
         body.answer_text,
     )
+    if result.pop("needs_generation", False):
+        background_tasks.add_task(_run_generation_task, exp.id)
+    return result
 
 
 @router.get("/experiences/{experience_id}/review-choices")
 def get_review_choices(
     experience_id: str,
+    background_tasks: BackgroundTasks,
     participant_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return {
-        "rounds": hwdyk.get_review_data(
-            db, _uuid_or_404(experience_id, "Experience not found"), uuid.UUID(participant_id)
-        )
+        "game_state": exp.game_state,
+        "phase": hwdyk_phases.phase_info(exp),
+        "rounds": hwdyk.get_review_data(db, exp.id, _participant_uuid(participant_id)),
     }
 
 
@@ -403,13 +461,19 @@ def edit_choice(
     experience_id: str,
     choice_id: str,
     body: EditChoiceBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.edit_choice(
-        db, exp, _uuid_or_404(choice_id), uuid.UUID(body.participant_id), body.new_text
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    result = hwdyk.edit_choice(
+        db,
+        exp,
+        _uuid_or_404(choice_id),
+        _participant_uuid(body.participant_id),
+        body.new_text,
+        expected_revision=body.expected_revision,
     )
-    return {"ok": True}
+    return {"ok": True, **result}
 
 
 @router.post("/experiences/{experience_id}/choices/{choice_id}/regenerate")
@@ -417,22 +481,30 @@ def regenerate_choice(
     experience_id: str,
     choice_id: str,
     body: RegenerateBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.regenerate_choice(
-        db, exp, _uuid_or_404(choice_id), uuid.UUID(body.participant_id)
+        db,
+        exp,
+        _uuid_or_404(choice_id),
+        _participant_uuid(body.participant_id),
+        expected_revision=body.expected_revision,
     )
 
 
 @router.post("/experiences/{experience_id}/confirm-choices")
 def confirm_choices(
     experience_id: str,
-    body: StartBody,
+    body: ConfirmChoicesBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.confirm_choices(db, exp, uuid.UUID(body.participant_id))
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    hwdyk.confirm_choices(
+        db, exp, _participant_uuid(body.participant_id), expected_revisions=body.revisions
+    )
     return {"ok": True}
 
 
@@ -444,7 +516,7 @@ def get_fake_answer_questions(
 ):
     return {
         "questions": hwdyk.get_fake_answer_questions(
-            db, _uuid_or_404(experience_id, "Experience not found"), uuid.UUID(participant_id)
+            db, _uuid_or_404(experience_id, "Experience not found"), _participant_uuid(participant_id)
         )
     }
 
@@ -459,8 +531,8 @@ def submit_fake_answer(
     return hwdyk.submit_fake_answer(
         db,
         exp,
-        uuid.UUID(body.round_id),
-        uuid.UUID(body.participant_id),
+        _participant_uuid(body.round_id),
+        _participant_uuid(body.participant_id),
         body.fake_text,
     )
 
@@ -477,7 +549,7 @@ def lock_party_mode(
     db: Session = Depends(get_db),
 ):
     exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.lock_party_mode(db, exp, uuid.UUID(body.participant_id))
+    hwdyk.lock_party_mode(db, exp, _participant_uuid(body.participant_id))
     return {"ok": True}
 
 
@@ -488,13 +560,13 @@ def start_live_game(
     db: Session = Depends(get_db),
 ):
     exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.start_live_game(db, exp, uuid.UUID(body.participant_id))
+    hwdyk.start_live_game(db, exp, _participant_uuid(body.participant_id))
     return {"ok": True}
 
 
 @router.get("/experiences/{experience_id}/hwdyk/state")
-def get_hwdyk_state(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
+def get_hwdyk_state(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.get_round_state(db, exp)
 
 
@@ -503,15 +575,16 @@ def submit_mc_guess(
     experience_id: str,
     round_id: str,
     body: MCGuessBody,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.submit_mc_guess(
         db,
         exp,
         _uuid_or_404(round_id),
-        uuid.UUID(body.participant_id),
-        uuid.UUID(body.choice_id),
+        _participant_uuid(body.participant_id),
+        _participant_uuid(body.choice_id),
     )
 
 
@@ -519,39 +592,48 @@ def submit_mc_guess(
 def reveal_hwdyk_round(
     experience_id: str,
     round_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
-    hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
-    return {"ok": True}
+    exp = _hwdyk_live(db, experience_id, background_tasks)
+    return hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
 
 
 @router.post("/experiences/{experience_id}/rounds/{round_id}/hwdyk-advance")
 def advance_hwdyk_round(
     experience_id: str,
     round_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    exp = _get_hwdyk_experience(db, experience_id)
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return hwdyk.advance_round(db, exp, _uuid_or_404(round_id))
 
 
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")
-def get_hwdyk_leaderboard(experience_id: str, db: Session = Depends(get_db)):
-    exp = _get_hwdyk_experience(db, experience_id)
-    # Check if a replay (child) experience exists
-    child = (
-        db.query(ExperienceInstance)
-        .filter(ExperienceInstance.parent_experience_instance_id == exp.id)
-        .first()
-    )
+def get_hwdyk_leaderboard(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    exp = _hwdyk_live(db, experience_id, background_tasks)
     return {
         "leaderboard": hwdyk.compute_hwdyk_scores(db, exp.id),
-        "next_experience_id": str(child.id) if child else None,
+        **hwdyk.replay_status(db, exp),
     }
+
+
+class EnterLobbyBody(BaseModel):
+    participant_id: str
+
+
+@router.post("/experiences/{experience_id}/hwdyk/return")
+def return_to_hwdyk_lobby(
+    experience_id: str, body: EnterLobbyBody, db: Session = Depends(get_db)
+):
+    """Come back to the lobby after a game (idempotent, see hwdyk.enter_lobby)."""
+    exp = _get_hwdyk_experience(db, experience_id)
+    return hwdyk.enter_lobby(db, exp, _participant_uuid(body.participant_id))
 
 
 @router.post("/experiences/{experience_id}/hwdyk/replay")
 def replay_hwdyk_game(experience_id: str, db: Session = Depends(get_db)):
+    """Older clients: open the next lobby with everyone in it."""
     exp = _get_hwdyk_experience(db, experience_id)
-    return hwdyk.replay_game(db, exp)
+    return hwdyk.enter_lobby(db, exp, None, everyone=True)

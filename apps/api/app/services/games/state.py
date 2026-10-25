@@ -23,12 +23,15 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "round_reveal": ["round_active", "leaderboard", "completed"],
     "leaderboard": ["completed"],
     # How Well Do You Know
+    # "lobby" is also a target here: a timed-out or invalid preparation returns
+    # to a recoverable lobby state so the host can start setup again.
     "main_person_answering": [
         "ai_generating_choices",
         "players_submitting_fake_answers",
+        "lobby",
     ],
-    "ai_generating_choices": ["main_person_reviewing_choices"],
-    "main_person_reviewing_choices": ["ready_to_start"],
+    "ai_generating_choices": ["main_person_reviewing_choices", "lobby"],
+    "main_person_reviewing_choices": ["ready_to_start", "lobby"],
     "players_submitting_fake_answers": ["ready_to_start"],
 }
 
@@ -47,6 +50,12 @@ def transition_state(
         )
     experience.game_state = target_state
     now = datetime.now(timezone.utc)
+    # Every transition starts a fresh phase: bump the version (lets clients drop
+    # out-of-order poll responses) and clear any deadline, so a timed phase must
+    # set its own and can never inherit the previous phase's clock.
+    experience.state_version = (experience.state_version or 0) + 1
+    experience.phase_started_at = now
+    experience.phase_deadline_at = None
     if target_state == "round_active" and experience.started_at is None:
         experience.started_at = now
     if target_state == "completed":

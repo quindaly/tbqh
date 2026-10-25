@@ -10,12 +10,34 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
  */
 export class ApiError extends Error {
   status: number;
+  /** Machine-readable reason from the server (e.g. "stale_revision"), if given. */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Turn FastAPI's `detail` (string, {code,message}, or validation list) into text. */
+function describeDetail(detail: unknown): { message?: string; code?: string } {
+  if (typeof detail === "string") return { message: detail };
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as any).msg) : ""))
+      .filter(Boolean);
+    return { message: msgs.join("; ") || undefined };
+  }
+  if (detail && typeof detail === "object") {
+    const d = detail as { message?: unknown; code?: unknown };
+    return {
+      message: typeof d.message === "string" ? d.message : undefined,
+      code: typeof d.code === "string" ? d.code : undefined,
+    };
+  }
+  return {};
 }
 
 async function apiFetch<T>(
@@ -38,9 +60,11 @@ async function apiFetch<T>(
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
+    const { message, code } = describeDetail(body.detail);
     throw new ApiError(
-      body.detail || body.error || `API error ${res.status}`,
-      res.status
+      message || body.error || `API error ${res.status}`,
+      res.status,
+      code
     );
   }
   return res.json();
@@ -517,17 +541,35 @@ export async function joinHWDYKGame(
   });
 }
 
+/** Countdown for a timed phase, as measured by the server when it replied. */
+export interface PhaseInfo {
+  name: string;
+  seconds_remaining: number;
+  duration_seconds: number;
+  deadline_at: string;
+  server_now: string;
+}
+
 export async function getHWDYKLobby(experienceId: string) {
   return apiFetch<{
     experience_id: string;
     game_state: string;
+    state_version: number;
+    phase: PhaseInfo | null;
+    progress: { answered: number; total: number } | null;
+    notice: { code: string; message: string } | null;
     game_slug: string;
     mode: string;
     join_code: string;
     share_url: string;
     host_id: string | null;
     main_person_participant_id: string | null;
+    /** True for a "play again" lobby, which only holds the people who came back. */
+    is_replay: boolean;
+    previous_main_person_id: string | null;
     participants: { id: string; display_name: string; role: string }[];
+    /** Replay lobbies: people from the session who haven't come back yet. */
+    absent_participants: { id: string; display_name: string }[];
   }>(`/experiences/${experienceId}/hwdyk/lobby`);
 }
 
@@ -560,7 +602,14 @@ export async function startHWDYKSetup(experienceId: string, participantId: strin
 
 export async function getMainPersonQuestions(experienceId: string) {
   return apiFetch<{
-    questions: { id: string; prompt_text: string; round_number: number }[];
+    game_state: string;
+    phase: PhaseInfo | null;
+    questions: {
+      id: string;
+      prompt_text: string;
+      round_number: number;
+      answered: boolean;
+    }[];
   }>(`/experiences/${experienceId}/main-person-questions`);
 }
 
@@ -585,6 +634,8 @@ export async function submitMainPersonAnswer(
 
 export async function getReviewChoices(experienceId: string, participantId: string) {
   return apiFetch<{
+    game_state: string;
+    phase: PhaseInfo | null;
     rounds: {
       round_id: string;
       round_number: number;
@@ -594,6 +645,8 @@ export async function getReviewChoices(experienceId: string, participantId: stri
         text: string;
         is_correct: boolean;
         source_type: string;
+        revision: number;
+        regenerations_used: number;
       }[];
     }[];
   }>(`/experiences/${experienceId}/review-choices?participant_id=${participantId}`);
@@ -603,13 +656,18 @@ export async function editChoice(
   experienceId: string,
   choiceId: string,
   participantId: string,
-  newText: string
+  newText: string,
+  expectedRevision?: number
 ) {
-  return apiFetch<{ ok: boolean }>(
+  return apiFetch<{ ok: boolean; id: string; text: string; revision: number }>(
     `/experiences/${experienceId}/choices/${choiceId}/edit`,
     {
       method: "POST",
-      body: JSON.stringify({ participant_id: participantId, new_text: newText }),
+      body: JSON.stringify({
+        participant_id: participantId,
+        new_text: newText,
+        expected_revision: expectedRevision,
+      }),
     }
   );
 }
@@ -617,23 +675,35 @@ export async function editChoice(
 export async function regenerateChoice(
   experienceId: string,
   choiceId: string,
-  participantId: string
+  participantId: string,
+  expectedRevision?: number
 ) {
-  return apiFetch<{ new_text: string }>(
-    `/experiences/${experienceId}/choices/${choiceId}/regenerate`,
-    {
-      method: "POST",
-      body: JSON.stringify({ participant_id: participantId }),
-    }
-  );
+  return apiFetch<{
+    id: string;
+    new_text: string;
+    text: string;
+    revision: number;
+    regenerations_used: number;
+    regenerations_remaining: number;
+  }>(`/experiences/${experienceId}/choices/${choiceId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({
+      participant_id: participantId,
+      expected_revision: expectedRevision,
+    }),
+  });
 }
 
-export async function confirmChoices(experienceId: string, participantId: string) {
+export async function confirmChoices(
+  experienceId: string,
+  participantId: string,
+  revisions?: Record<string, number>
+) {
   return apiFetch<{ ok: boolean }>(
     `/experiences/${experienceId}/confirm-choices`,
     {
       method: "POST",
-      body: JSON.stringify({ participant_id: participantId }),
+      body: JSON.stringify({ participant_id: participantId, revisions }),
     }
   );
 }
@@ -702,6 +772,7 @@ export async function getHWDYKState(experienceId: string) {
     experience_id: string;
     experience_type: string;
     game_state: string;
+    state_version: number;
     mode: string;
     current_round: number;
     max_rounds: number;
@@ -712,7 +783,13 @@ export async function getHWDYKState(experienceId: string) {
       round_number: number;
       status: string;
       question_text: string;
+      question_text_self?: string;
+      /** Server-measured seconds left in the guessing window. */
+      seconds_remaining: number;
       time_remaining_seconds: number;
+      duration_seconds: number;
+      eligible_participant_ids: string[];
+      guessed_participant_ids: string[];
       is_locked: boolean;
       guesses_submitted: number;
       total_guessers: number;
@@ -767,7 +844,7 @@ export async function revealHWDYKRound(experienceId: string, roundId: string) {
 }
 
 export async function advanceHWDYKRound(experienceId: string, roundId: string) {
-  return apiFetch<{ ok: boolean; is_last: boolean }>(
+  return apiFetch<{ ok: boolean; is_last: boolean; advanced: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-advance`,
     { method: "POST" }
   );
@@ -783,14 +860,30 @@ export async function getHWDYKLeaderboard(experienceId: string) {
       fool_count?: number;
       rank: number;
     }[];
-    next_experience_id?: string | null;
+    /** The lobby for the next game, once anyone has opened it. */
+    next_experience_id: string | null;
+    next_game_state: string | null;
+    /** Participants who are already in that lobby. */
+    returned_ids: string[];
+    participant_count: number;
   }>(`/experiences/${experienceId}/hwdyk/leaderboard`);
 }
 
-export async function replayHWDYKGame(experienceId: string) {
+/**
+ * "Return to lobby / play again". Opens the next lobby if nobody has yet, and
+ * puts this participant in it. Safe to call repeatedly.
+ */
+export async function returnToHWDYKLobby(
+  experienceId: string,
+  participantId: string
+) {
   return apiFetch<{
     experience_instance_id: string;
+    game_state: string;
     join_code: string;
     share_url: string;
-  }>(`/experiences/${experienceId}/hwdyk/replay`, { method: "POST" });
+  }>(`/experiences/${experienceId}/hwdyk/return`, {
+    method: "POST",
+    body: JSON.stringify({ participant_id: participantId }),
+  });
 }
