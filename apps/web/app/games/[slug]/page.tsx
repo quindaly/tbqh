@@ -3,12 +3,31 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createGame, joinGame } from "@/lib/api";
+import { BackLink, Heading, PrimaryButton, SecondaryButton } from "../../_components/ui";
+
+const NAME_KEY = "tbqh-display-name";
+
+function readName() {
+  try {
+    return localStorage.getItem(NAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    /* private mode: fine */
+  }
+}
 
 export default function GameSlugPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
 
-  // Redirect HWDYK to its dedicated page
+  // The Hot Seat has its own start page.
   useEffect(() => {
     if (slug === "how-well-do-you-know") {
       router.replace("/games/how-well-do-you-know");
@@ -21,6 +40,10 @@ export default function GameSlugPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    setDisplayName(readName());
+  }, []);
+
   // Invite links look like /games/who-knows-who?code=ABC123: jump straight to
   // the join form with the code filled in.
   useEffect(() => {
@@ -31,15 +54,22 @@ export default function GameSlugPage() {
     }
   }, []);
 
+  function go(next: "choose" | "create" | "join") {
+    setError("");
+    setMode(next);
+  }
+
   async function handleCreate() {
     if (!displayName.trim()) {
-      setError("Enter a display name");
+      setError("Enter your name so friends know who you are");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const res = await createGame(slug, displayName.trim());
+      const name = displayName.trim();
+      saveName(name);
+      const res = await createGame(slug, name);
       localStorage.setItem(`game_pid_${res.experience_instance_id}`, res.participant_id);
       router.push(`/games/experience/${res.experience_instance_id}/lobby`);
     } catch (e: any) {
@@ -51,13 +81,15 @@ export default function GameSlugPage() {
 
   async function handleJoin() {
     if (!displayName.trim() || !joinCode.trim()) {
-      setError("Enter a display name and join code");
+      setError("Enter your name and the join code");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const res = await joinGame(slug, joinCode.trim().toUpperCase(), displayName.trim());
+      const name = displayName.trim();
+      saveName(name);
+      const res = await joinGame(slug, joinCode.trim().toUpperCase(), name);
       localStorage.setItem(`game_pid_${res.experience_instance_id}`, res.participant_id);
       router.push(`/games/experience/${res.experience_instance_id}/lobby`);
     } catch (e: any) {
@@ -67,80 +99,95 @@ export default function GameSlugPage() {
     }
   }
 
+  const errorLine = error ? <p role="alert" className="text-red-500 text-sm">{error}</p> : null;
+
   if (mode === "choose") {
     return (
-      <div className="space-y-8 py-12 text-center">
-        <h1 className="text-3xl font-bold">Who Knows Who</h1>
-        <p className="text-muted">
-          Answer questions about yourself, then guess who gave each answer.
-        </p>
-        <div className="flex flex-col gap-4 items-center">
-          <button
-            onClick={() => setMode("create")}
-            className="w-64 px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition font-medium"
-          >
-            Create Game
-          </button>
-          <button
-            onClick={() => setMode("join")}
-            className="w-64 px-6 py-3 border border-line rounded-md hover:bg-soft transition"
-          >
-            Join Game
-          </button>
+      <div className="max-w-md mx-auto flex flex-col gap-8 py-10">
+        <div className="flex flex-col gap-3">
+          <Heading>Who Knows Who</Heading>
+          <p className="text-muted">
+            Everyone answers questions about themselves. Then you take turns guessing who wrote
+            each answer. Best with 3 or more friends.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <PrimaryButton onClick={() => go("create")}>Start a game</PrimaryButton>
+          <SecondaryButton onClick={() => go("join")}>Join with a code</SecondaryButton>
         </div>
         <a href="/games" className="text-sm text-muted hover:underline">
-          ← Back to games
+          ← All games
         </a>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-md mx-auto space-y-6 py-12">
-      <h1 className="text-2xl font-bold text-center">
-        {mode === "create" ? "Create Game" : "Join Game"}
-      </h1>
-
-      <div className="space-y-4">
+  if (mode === "create") {
+    return (
+      <form
+        className="max-w-md mx-auto flex flex-col gap-6 py-10"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleCreate();
+        }}
+      >
+        <BackLink onClick={() => go("choose")} />
+        <Heading>What should we call you?</Heading>
         <input
           type="text"
-          placeholder="Your display name"
+          autoFocus
+          autoComplete="given-name"
+          aria-label="Your name"
+          placeholder="Your name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          className="w-full px-4 py-3 border rounded-md bg-surface"
+          maxLength={40}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface text-[17px]"
         />
+        {errorLine}
+        <PrimaryButton type="submit" disabled={loading}>
+          {loading ? "Creating…" : "Create game"}
+        </PrimaryButton>
+      </form>
+    );
+  }
 
-        {mode === "join" && (
-          <input
-            type="text"
-            placeholder="Join code"
-            value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value)}
-            className="w-full px-4 py-3 border rounded-md bg-surface uppercase tracking-widest text-center"
-            maxLength={6}
-          />
-        )}
-
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-
-        <button
-          onClick={mode === "create" ? handleCreate : handleJoin}
-          disabled={loading}
-          className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
-        >
-          {loading ? "Loading…" : mode === "create" ? "Create" : "Join"}
-        </button>
-
-        <button
-          onClick={() => {
-            setMode("choose");
-            setError("");
-          }}
-          className="w-full text-sm text-muted hover:underline"
-        >
-          ← Back
-        </button>
+  // Join
+  return (
+    <form
+      className="max-w-md mx-auto flex flex-col gap-6 py-10"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleJoin();
+      }}
+    >
+      <BackLink onClick={() => go("choose")} />
+      <Heading>Join a game</Heading>
+      <div className="flex flex-col gap-3">
+        <input
+          type="text"
+          aria-label="Join code"
+          placeholder="Join code"
+          value={joinCode}
+          onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+          maxLength={6}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface uppercase tracking-widest text-center text-[17px]"
+        />
+        <input
+          type="text"
+          autoComplete="given-name"
+          aria-label="Your name"
+          placeholder="Your name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          maxLength={40}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface text-[17px]"
+        />
       </div>
-    </div>
+      {errorLine}
+      <PrimaryButton type="submit" disabled={loading}>
+        {loading ? "Joining…" : "Join"}
+      </PrimaryButton>
+    </form>
   );
 }

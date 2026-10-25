@@ -290,9 +290,14 @@ def start_collection(
 
 
 @router.get("/experiences/{experience_id}/prompts")
-def get_prompts(experience_id: str, db: Session = Depends(get_db)):
+def get_prompts(
+    experience_id: str,
+    participant_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
     exp = _get_experience(db, experience_id)
-    return {"prompts": wkw.get_prompts_for_experience(db, exp.id)}
+    viewer = _participant_uuid(participant_id) if participant_id else None
+    return {"prompts": wkw.get_prompts_for_experience(db, exp.id, viewer)}
 
 
 @router.post("/experiences/{experience_id}/prompts/answer")
@@ -315,9 +320,14 @@ def submit_answer(
 
 
 @router.get("/experiences/{experience_id}/state")
-def get_state(experience_id: str, db: Session = Depends(get_db)):
+def get_state(
+    experience_id: str,
+    participant_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
     exp = _get_experience(db, experience_id)
-    return get_game_state_payload(db, exp)
+    viewer = _participant_uuid(participant_id) if participant_id else None
+    return get_game_state_payload(db, exp, viewer)
 
 
 # ---- rounds ----
@@ -344,20 +354,32 @@ def submit_guess(
 def reveal_round(
     experience_id: str,
     round_id: str,
+    body: RoundActionBody,
     db: Session = Depends(get_db),
 ):
     exp = _get_experience(db, experience_id)
-    return wkw.reveal_round(db, experience=exp, round_id=_uuid_or_404(round_id))
+    return wkw.reveal_round(
+        db,
+        experience=exp,
+        round_id=_uuid_or_404(round_id),
+        participant_id=_participant_uuid(body.participant_id),
+    )
 
 
 @router.post("/experiences/{experience_id}/rounds/{round_id}/advance")
 def advance_round(
     experience_id: str,
     round_id: str,
+    body: RoundActionBody,
     db: Session = Depends(get_db),
 ):
     exp = _get_experience(db, experience_id)
-    return wkw.advance_round(db, experience=exp, round_id=_uuid_or_404(round_id))
+    return wkw.advance_round(
+        db,
+        experience=exp,
+        round_id=_uuid_or_404(round_id),
+        participant_id=_participant_uuid(body.participant_id),
+    )
 
 
 # ---- leaderboard ----
@@ -366,16 +388,24 @@ def advance_round(
 @router.get("/experiences/{experience_id}/leaderboard")
 def get_leaderboard(experience_id: str, db: Session = Depends(get_db)):
     exp = _get_experience(db, experience_id)
-    return {"leaderboard": scoring.compute_scores(db, exp.id)}
+    return {
+        "leaderboard": scoring.compute_scores(db, exp.id),
+        **wkw.replay_status(db, exp),
+    }
 
 
 # ---- replay ----
 
 
 @router.post("/experiences/{experience_id}/replay")
-def replay_game(experience_id: str, db: Session = Depends(get_db)):
+def replay_game(
+    experience_id: str,
+    body: RoundActionBody | None = None,
+    db: Session = Depends(get_db),
+):
     exp = _get_experience(db, experience_id)
-    return wkw.replay_game(db, exp)
+    pid = _participant_uuid(body.participant_id) if body else None
+    return wkw.replay_game(db, exp, pid)
 
 
 # ===========================================================

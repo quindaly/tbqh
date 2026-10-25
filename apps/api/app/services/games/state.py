@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.models.experience import ExperienceInstance
+from app.db.models.game_guess import GameGuess
 from app.db.models.game_round import GameRound
 from app.db.models.session import SessionParticipant
 from app.db.models.participant import Participant
@@ -64,27 +65,35 @@ def transition_state(
     return experience
 
 
-def get_game_state_payload(db: Session, experience: ExperienceInstance) -> dict:
-    """Build the full state object returned by GET /state."""
-    # Participants
-    links = (
-        db.query(SessionParticipant)
-        .filter(SessionParticipant.session_id == experience.session_id)
-        .all()
-    )
-    participant_ids = [l.participant_id for l in links]
-    participants = (
-        db.query(Participant).filter(Participant.id.in_(participant_ids)).all()
-    )
+def get_game_state_payload(
+    db: Session,
+    experience: ExperienceInstance,
+    viewer_id: uuid.UUID | None = None,
+) -> dict:
+    """Build the full state object returned by GET /state.
+
+    While a round is being guessed, nothing in it says whose answer it is:
+    the viewer is only told whether it is *theirs* and whether they have
+    already guessed. The owner is named at the reveal."""
+    from app.services.games.roster import host_of, roster
+
+    players = roster(db, experience)
+    is_replay = experience.present_participant_ids is not None
+    host = host_of(players, is_replay)
     participants_payload = [
-        {"id": str(p.id), "display_name": p.display_name, "role": p.role}
-        for p in participants
+        {
+            "id": str(p.id),
+            "display_name": p.display_name,
+            "role": "host" if host and p.id == host.id else p.role,
+        }
+        for p in players
     ]
 
     payload: dict = {
         "experience_id": str(experience.id),
         "experience_type": experience.experience_type,
         "game_state": experience.game_state,
+        "state_version": experience.state_version,
         "current_round": experience.current_round,
         "max_rounds": experience.max_rounds,
         "participants": participants_payload,
@@ -101,6 +110,10 @@ def get_game_state_payload(db: Session, experience: ExperienceInstance) -> dict:
             .first()
         )
         if game_round:
+            owner_id = game_round.answering_participant_id
+            guesses = (
+                db.query(GameGuess).filter(GameGuess.game_round_id == game_round.id).all()
+            )
             round_payload: dict = {
                 "round_id": str(game_round.id),
                 "round_number": game_round.round_number,
@@ -108,21 +121,25 @@ def get_game_state_payload(db: Session, experience: ExperienceInstance) -> dict:
                 "question_text": game_round.source_prompt_instance.prompt_text,
                 "answer_text": game_round.source_response.other_text
                 or game_round.source_response.selected_option,
-                "answering_participant_id": str(game_round.answering_participant_id),
+                "is_yours": viewer_id is not None and viewer_id == owner_id,
+                "you_guessed": viewer_id is not None
+                and any(g.guessing_participant_id == viewer_id for g in guesses),
+                "guessed_count": len(guesses),
+                "guesser_count": len([p for p in players if p.id != owner_id]),
             }
             if experience.game_state == "round_reveal":
+                round_payload["answering_participant_id"] = str(owner_id)
                 round_payload["answering_participant_name"] = (
                     game_round.answering_participant.display_name
                 )
-                guesses = [
+                round_payload["guesses"] = [
                     {
                         "guessing_participant_id": str(g.guessing_participant_id),
                         "guessed_participant_id": str(g.guessed_participant_id),
                         "is_correct": g.is_correct,
                     }
-                    for g in game_round.guesses
+                    for g in guesses
                 ]
-                round_payload["guesses"] = guesses
             payload["round"] = round_payload
 
     # Scores

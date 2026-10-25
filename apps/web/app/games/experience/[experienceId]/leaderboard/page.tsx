@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ApiError, getLeaderboard, replayGame } from "@/lib/api";
-import { LobbyNotFound, LobbyUnreachable } from "../../../_components/LobbyStatus";
+import { getLeaderboard, replayGame } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
+import { Eyebrow, Heading, PrimaryButton, SecondaryButton } from "../../../../_components/ui";
+import {
+  ConnectionBanner,
+  LobbyNotFound,
+  LobbyUnreachable,
+} from "../../../_components/LobbyStatus";
 
 interface LeaderboardEntry {
   participant_id: string;
@@ -12,45 +18,54 @@ interface LeaderboardEntry {
   rank: number;
 }
 
+interface NextGame {
+  id: string | null;
+  returned: string[];
+  total: number;
+}
+
+function winnersLine(winners: LeaderboardEntry[]) {
+  const names = winners.map((w) => w.display_name);
+  if (names.length === 1) return `${names[0]} knew everyone best.`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} tied.`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} tied.`;
+}
+
 export default function LeaderboardPage() {
   const { experienceId } = useParams<{ experienceId: string }>();
   const router = useRouter();
 
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [next, setNext] = useState<NextGame>({ id: null, returned: [], total: 0 });
   const [replaying, setReplaying] = useState(false);
   const [error, setError] = useState("");
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [notFound, setNotFound] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-
   const [participantId, setParticipantId] = useState<string | null>(null);
 
   useEffect(() => {
     setParticipantId(localStorage.getItem(`game_pid_${experienceId}`));
   }, [experienceId]);
 
-  useEffect(() => {
-    setLoading(true);
-    setLoadFailed(false);
-    getLeaderboard(experienceId)
-      .then((data) => setEntries(data.leaderboard))
-      .catch((e: any) => {
-        if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
-          setNotFound(true);
-        } else {
-          setLoadFailed(true);
-        }
-      })
-      .finally(() => setLoading(false));
-  }, [experienceId, reloadKey]);
+  // Keeps the scores and "who is back for the next game" fresh. Throws on
+  // failure so usePolling can back off and stop on a missing game.
+  const fetchBoard = useCallback(async () => {
+    const data = await getLeaderboard(experienceId);
+    setEntries(data.leaderboard);
+    setNext({
+      id: data.next_experience_id,
+      returned: data.returned_ids ?? [],
+      total: data.participant_count ?? data.leaderboard.length,
+    });
+  }, [experienceId]);
+
+  const { failures, fatal, gaveUp, retry } = usePolling(fetchBoard, { baseMs: 4000 });
 
   async function handleReplay() {
+    if (!participantId) return;
     setReplaying(true);
     setError("");
     try {
-      const res = await replayGame(experienceId);
-      localStorage.setItem(`game_pid_${res.experience_instance_id}`, participantId!);
+      const res = await replayGame(experienceId, participantId);
+      localStorage.setItem(`game_pid_${res.experience_instance_id}`, participantId);
       router.push(`/games/experience/${res.experience_instance_id}/lobby`);
     } catch (e: any) {
       setError(e.message);
@@ -59,78 +74,82 @@ export default function LeaderboardPage() {
     }
   }
 
-  if (notFound) {
+  if (fatal) {
     return <LobbyNotFound />;
   }
 
-  if (loading) {
-    return <p className="text-center py-16 text-muted">Loading results…</p>;
+  if (!entries) {
+    return gaveUp ? (
+      <LobbyUnreachable onRetry={retry} />
+    ) : (
+      <p className="text-center py-16 text-muted">Loading results…</p>
+    );
   }
 
-  if (loadFailed) {
-    return <LobbyUnreachable onRetry={() => setReloadKey((n) => n + 1)} />;
-  }
-
-  const winner = entries[0];
+  const winners = entries.filter((e) => e.rank === 1);
+  const isPlayer = !!participantId && entries.some((e) => e.participant_id === participantId);
+  const nextOpen = next.id !== null && next.returned.length > 0;
 
   return (
-    <div className="max-w-md mx-auto space-y-8 py-8">
-      <h1 className="text-3xl font-bold text-center">Leaderboard</h1>
+    <div className="max-w-md mx-auto flex flex-col gap-8 py-8">
+      {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
 
-      {/* Winner highlight */}
-      {winner && (
-        <div className="text-center space-y-2">
-          <span className="text-5xl">🏆</span>
-          <p className="text-2xl font-bold">{winner.display_name}</p>
-          <p className="text-muted">
-            {winner.score} correct guess{winner.score !== 1 ? "es" : ""}
-          </p>
+      <div className="flex flex-col gap-2">
+        <Eyebrow>Final scores</Eyebrow>
+        {winners.length > 0 && <Heading size={44}>{winnersLine(winners)}</Heading>}
+      </div>
+
+      {/* Full rankings */}
+      <ol className="border-t border-line">
+        {entries.map((entry) => {
+          const first = entry.rank === 1;
+          const mine = entry.participant_id === participantId;
+          return (
+            <li
+              key={entry.participant_id}
+              className="flex items-baseline gap-4 py-4 border-b border-soft"
+            >
+              <span
+                className={`w-7 font-serif ${first ? "text-[28px] text-accent" : "text-[24px] text-muted"}`}
+              >
+                {entry.rank}
+              </span>
+              <span className={`flex-grow font-serif ${first ? "text-[28px]" : "text-[24px]"}`}>
+                {entry.display_name}
+                {mine && <span className="font-sans text-sm text-muted"> (you)</span>}
+              </span>
+              <span
+                className={`tabular-nums ${first ? "text-[20px]" : "text-[18px] text-muted"}`}
+              >
+                {entry.score}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {nextOpen && (
+        <div className="rounded-md border border-soft bg-surface px-4 py-3 flex items-center justify-between">
+          <span className="text-[15px] text-muted">Back in the lobby</span>
+          <span className="text-[15px] tabular-nums">
+            {next.returned.length} of {next.total}
+          </span>
         </div>
       )}
 
-      {/* Full rankings */}
-      <div className="space-y-2">
-        {entries.map((entry) => (
-          <div
-            key={entry.participant_id}
-            className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
-              entry.rank === 1
-                ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20"
-                : entry.rank === 2
-                ? "border-line bg-surface"
-                : entry.rank === 3
-                ? "border-orange-300 bg-orange-50 dark:bg-orange-900/20"
-                : ""
-            } ${entry.participant_id === participantId ? "ring-2 ring-accent" : ""}`}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-bold w-6 text-center">
-                {entry.rank === 1 ? "🥇" : entry.rank === 2 ? "🥈" : entry.rank === 3 ? "🥉" : `${entry.rank}`}
-              </span>
-              <span className="font-medium">{entry.display_name}</span>
-            </div>
-            <span className="font-mono text-lg">{entry.score}</span>
-          </div>
-        ))}
-      </div>
+      {error && (
+        <p role="alert" className="text-red-500 text-sm">
+          {error}
+        </p>
+      )}
 
-      {error && <p className="text-red-500 text-sm">{error}</p>}
-
-      {/* Actions */}
       <div className="flex flex-col gap-3">
-        <button
-          onClick={handleReplay}
-          disabled={replaying}
-          className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
-        >
-          {replaying ? "Creating…" : "Play Again"}
-        </button>
-        <button
-          onClick={() => router.push("/games")}
-          className="w-full px-6 py-3 border border-line rounded-md hover:bg-soft transition"
-        >
-          Choose Another Game
-        </button>
+        {isPlayer && (
+          <PrimaryButton onClick={handleReplay} disabled={replaying}>
+            {replaying ? "One moment…" : nextOpen ? "Join the next game" : "Play again"}
+          </PrimaryButton>
+        )}
+        <SecondaryButton onClick={() => router.push("/games")}>Choose another game</SecondaryButton>
       </div>
     </div>
   );

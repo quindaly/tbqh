@@ -108,7 +108,7 @@ class TestCannotJoinAfterLobby:
     def test_join_after_start_rejected(self, db):
         from fastapi import HTTPException
 
-        _, host, guests, session, exp = _seed_lobby(db, num_participants=2)
+        _, host, guests, session, exp = _seed_lobby(db, num_participants=3)
         wkw.start_answer_collection(db, exp, host.id)
 
         with pytest.raises(HTTPException) as exc_info:
@@ -130,7 +130,7 @@ class TestNonHostCannotStart:
     def test_guest_cannot_start(self, db):
         from fastapi import HTTPException
 
-        _, host, guests, session, exp = _seed_lobby(db, num_participants=2)
+        _, host, guests, session, exp = _seed_lobby(db, num_participants=3)
         with pytest.raises(HTTPException) as exc_info:
             wkw.start_answer_collection(db, exp, guests[0].id)
         assert exc_info.value.status_code == 403
@@ -140,7 +140,7 @@ class TestDuplicateAnswer:
     def test_cannot_answer_same_prompt_twice(self, db):
         from fastapi import HTTPException
 
-        _, host, guests, session, exp = _seed_lobby(db, num_participants=2)
+        _, host, guests, session, exp = _seed_lobby(db, num_participants=3)
         wkw.start_answer_collection(db, exp, host.id)
         prompts = (
             db.query(PromptInstance)

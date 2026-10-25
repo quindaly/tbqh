@@ -8,6 +8,8 @@ GAMES = [
         "slug": "who-knows-who",
         "display_name": "Who Knows Who",
         "description": "Answer questions about yourself, then guess which friend gave each answer.",
+        "min_players": 3,
+        "max_players": 20,
         "status": "active",
     },
     {

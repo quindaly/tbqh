@@ -30,33 +30,30 @@ def compute_scores(db: Session, experience_instance_id: uuid.UUID) -> list[dict]
     score_map = {row[0]: row[1] for row in rows}
 
     # Include participants with 0 correct guesses
-    from app.db.models.session import SessionParticipant
     from app.db.models.experience import ExperienceInstance
+    from app.services.games.roster import roster
 
     exp = db.get(ExperienceInstance, experience_instance_id)
     if not exp:
         return []
-    links = (
-        db.query(SessionParticipant)
-        .filter(SessionParticipant.session_id == exp.session_id)
-        .all()
-    )
-    pids = [l.participant_id for l in links]
-    participants = db.query(Participant).filter(Participant.id.in_(pids)).all()
+    players = roster(db, exp)
 
-    results = []
-    for p in participants:
-        results.append(
-            {
-                "participant_id": str(p.id),
-                "display_name": p.display_name,
-                "score": score_map.get(p.id, 0),
-            }
-        )
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results = [
+        {
+            "participant_id": str(p.id),
+            "display_name": p.display_name,
+            "score": score_map.get(p.id, 0),
+        }
+        for p in players
+    ]
+    # Highest first; ties keep a stable, readable order.
+    results.sort(key=lambda x: (-x["score"], x["display_name"].casefold()))
 
-    # Add rank
-    for i, r in enumerate(results, 1):
-        r["rank"] = i
+    # Competition ranking: players on the same score share a rank (1, 1, 3).
+    for i, r in enumerate(results):
+        if i > 0 and r["score"] == results[i - 1]["score"]:
+            r["rank"] = results[i - 1]["rank"]
+        else:
+            r["rank"] = i + 1
 
     return results

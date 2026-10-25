@@ -391,10 +391,11 @@ export async function startCollection(experienceId: string, participantId: strin
   });
 }
 
-export async function getGamePrompts(experienceId: string) {
+export async function getGamePrompts(experienceId: string, participantId?: string | null) {
+  const q = participantId ? `?participant_id=${encodeURIComponent(participantId)}` : "";
   return apiFetch<{
-    prompts: { id: string; prompt_text: string; prompt_type: string }[];
-  }>(`/experiences/${experienceId}/prompts`);
+    prompts: { id: string; prompt_text: string; prompt_type: string; answered?: boolean }[];
+  }>(`/experiences/${experienceId}/prompts${q}`);
 }
 
 export async function submitGameAnswer(
@@ -416,7 +417,7 @@ export async function submitGameAnswer(
   );
 }
 
-export async function getGameState(experienceId: string) {
+export async function getGameState(experienceId: string, participantId?: string | null) {
   return apiFetch<{
     experience_id: string;
     experience_type: string;
@@ -430,7 +431,13 @@ export async function getGameState(experienceId: string) {
       status: string;
       question_text: string;
       answer_text: string;
-      answering_participant_id: string;
+      // Whether the round is about the viewer's own answer, and whether they
+      // have already guessed. The owner is only named at the reveal.
+      is_yours: boolean;
+      you_guessed: boolean;
+      guessed_count: number;
+      guesser_count: number;
+      answering_participant_id?: string;
       answering_participant_name?: string;
       guesses?: {
         guessing_participant_id: string;
@@ -444,7 +451,11 @@ export async function getGameState(experienceId: string) {
       score: number;
       rank: number;
     }[];
-  }>(`/experiences/${experienceId}/state`);
+  }>(
+    `/experiences/${experienceId}/state${
+      participantId ? `?participant_id=${encodeURIComponent(participantId)}` : ""
+    }`
+  );
 }
 
 export async function submitGuess(
@@ -465,17 +476,25 @@ export async function submitGuess(
   );
 }
 
-export async function revealRound(experienceId: string, roundId: string) {
+export async function revealRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/reveal`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 
-export async function advanceRound(experienceId: string, roundId: string) {
+export async function advanceRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean; is_last: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/advance`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 
@@ -487,15 +506,24 @@ export async function getLeaderboard(experienceId: string) {
       score: number;
       rank: number;
     }[];
+    // The next game, once someone has tapped Play again.
+    next_experience_id: string | null;
+    next_game_state: string | null;
+    returned_ids: string[];
+    participant_count: number;
   }>(`/experiences/${experienceId}/leaderboard`);
 }
 
-export async function replayGame(experienceId: string) {
+export async function replayGame(experienceId: string, participantId: string) {
   return apiFetch<{
     experience_instance_id: string;
+    game_state: string;
     join_code: string;
     share_url: string;
-  }>(`/experiences/${experienceId}/replay`, { method: "POST" });
+  }>(`/experiences/${experienceId}/replay`, {
+    method: "POST",
+    body: JSON.stringify({ participant_id: participantId }),
+  });
 }
 
 // ---- The Hot Seat ----

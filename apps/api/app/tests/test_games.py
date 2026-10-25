@@ -77,7 +77,10 @@ def _seed(db: Session):
     guest = Participant(
         group_id=group.id, display_name="Guest", role="guest", join_type="anonymous"
     )
-    db.add_all([host, guest])
+    guest2 = Participant(
+        group_id=group.id, display_name="Guest2", role="guest", join_type="anonymous"
+    )
+    db.add_all([host, guest, guest2])
     db.flush()
 
     session = SessionModel(
@@ -88,7 +91,7 @@ def _seed(db: Session):
     db.add(session)
     db.flush()
 
-    for p in [host, guest]:
+    for p in [host, guest, guest2]:
         db.add(SessionParticipant(session_id=session.id, participant_id=p.id))
     db.flush()
 
@@ -104,6 +107,13 @@ def _seed(db: Session):
     db.flush()
 
     return user, policy, group, host, guest, session, exp
+
+
+def _everyone(db: Session, session) -> list:
+    """Ids of every participant in the session, oldest first."""
+    from app.services.games.roster import session_participants
+
+    return [p.id for p in session_participants(db, session.id)]
 
 
 # --------------- state machine tests ---------------
@@ -161,7 +171,7 @@ class TestAnswerCollection:
         )
 
         # Both participants answer all prompts
-        for p_id in [host.id, guest.id]:
+        for p_id in _everyone(db, session):
             for pi in prompts:
                 wkw.submit_self_answer(
                     db, exp, pi.id, p_id, f"answer-{uuid.uuid4().hex[:4]}"
@@ -200,7 +210,7 @@ class TestGameplay:
             .filter(PromptInstance.experience_instance_id == exp.id)
             .all()
         )
-        for p_id in [host.id, guest.id]:
+        for p_id in _everyone(db, session):
             for pi in prompts:
                 wkw.submit_self_answer(
                     db, exp, pi.id, p_id, f"answer-{uuid.uuid4().hex[:6]}"
@@ -296,7 +306,7 @@ class TestScoring:
             .filter(PromptInstance.experience_instance_id == exp.id)
             .all()
         )
-        for p_id in [host.id, guest.id]:
+        for p_id in _everyone(db, session):
             for pi in prompts:
                 wkw.submit_self_answer(
                     db, exp, pi.id, p_id, f"answer-{uuid.uuid4().hex[:6]}"
@@ -319,7 +329,7 @@ class TestScoring:
         )
 
         scores = compute_scores(db, exp.id)
-        assert len(scores) == 2
+        assert len(scores) == 3
         assert scores[0]["score"] >= 1  # At least the correct guesser has 1
 
 
@@ -329,6 +339,8 @@ class TestScoring:
 class TestReplay:
     def test_replay_creates_new_experience(self, db):
         _, _, _, host, guest, session, exp = _seed(db)
+        exp.game_state = "leaderboard"
+        db.flush()
         result = wkw.replay_game(db, exp)
         assert result["experience_instance_id"] != str(exp.id)
 
