@@ -328,10 +328,7 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
 
     progress = None
     if experience.game_state == phases.ANSWERING:
-        progress = {
-            "answered": phases.answered_count(db, experience),
-            "total": int(config.get("num_questions", 5)),
-        }
+        progress = phases.answer_progress(db, experience)
 
     # In a replay lobby, also say who has not come back yet and who was in the
     # hot seat last time, so the host can see the room and rotate the turn.
@@ -458,6 +455,7 @@ def start_setup(
 
     config = dict(experience.game_config or DEFAULT_GAME_CONFIG)
     config.pop("notice", None)  # a fresh attempt clears the last failure message
+    config["answer_cursor"] = 0  # the first question is up (its clock just started)
     experience.game_config = config
     num_q = config.get("num_questions", 5)
     questions = select_questions(num_q)
@@ -496,6 +494,8 @@ def start_setup(
 
 
 def get_main_person_questions(db: Session, experience_id: uuid.UUID) -> list[dict]:
+    experience = db.get(ExperienceInstance, experience_id)
+    cursor = phases.answer_cursor(experience) if experience else 0
     prompts = (
         db.query(PromptInstance)
         .filter(
@@ -519,8 +519,11 @@ def get_main_person_questions(db: Session, experience_id: uuid.UUID) -> list[dic
             "prompt_text": format_question_self(p.prompt_text),
             "round_number": p.round_number,
             "answered": p.id in answered,
+            # Its 20 seconds passed without an answer, so it won't be played.
+            "skipped": i < cursor and p.id not in answered,
+            "current": i == cursor,
         }
-        for p in prompts
+        for i, p in enumerate(prompts)
     ]
 
 
@@ -584,6 +587,17 @@ def submit_main_person_answer(
     if existing_round:
         raise _conflict("already_answered", "This question has already been answered")
 
+    # Questions are asked one at a time, each with its own 20 seconds.
+    order = phases.question_ids(db, experience)
+    index = order.index(prompt_instance_id) if prompt_instance_id in order else -1
+    cursor = phases.answer_cursor(experience)
+    if index < cursor:
+        raise _conflict(
+            "question_skipped", "Time ran out for that question, so it was skipped."
+        )
+    if index > cursor:
+        raise _conflict("wrong_question", "That isn't the current question.")
+
     # Create GameRound
     game_round = GameRound(
         experience_instance_id=experience.id,
@@ -612,19 +626,23 @@ def submit_main_person_answer(
     game_round.correct_choice_id = correct_choice.id
     db.flush()
 
-    num_q = config.get("num_questions", 5)
-    all_answered = phases.answered_count(db, experience) >= num_q
-
+    all_answered = cursor + 1 >= len(order)
     needs_generation = False
     if all_answered:
         needs_generation = phases.finish_answering(db, experience) == "generate"
     else:
+        # On to the next question, with a fresh 20 seconds.
+        phases.set_answer_cursor(experience, cursor + 1)
+        phases.start_phase_clock(experience, phases.answer_seconds(experience))
+        experience.state_version = (experience.state_version or 0) + 1
         db.commit()
 
     return {
         "ok": True,
         "all_answered": all_answered,
         "needs_generation": needs_generation,
+        "phase": phases.phase_info(experience),
+        "current_index": None if all_answered else cursor + 1,
     }
 
 
@@ -1378,6 +1396,7 @@ def start_live_game(
 def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
     """Build full game state payload for HWDYK polling (read-only)."""
     participants = _get_participants(db, experience)
+    round_host = _effective_host(db, experience)
     config = experience.game_config or DEFAULT_GAME_CONFIG
 
     # Get main person display name for question personalization
@@ -1405,7 +1424,11 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
         ),
         "main_person_display_name": main_person_name,
         "participants": [
-            {"id": str(p.id), "display_name": p.display_name, "role": p.role}
+            {
+                "id": str(p.id),
+                "display_name": p.display_name,
+                "role": "host" if round_host and p.id == round_host.id else "guest",
+            }
             for p in participants
         ],
     }
@@ -1706,8 +1729,19 @@ def reveal_round(
     db: Session,
     experience: ExperienceInstance,
     round_id: uuid.UUID,
+    participant_id: uuid.UUID,
 ) -> dict:
-    """Reveal on request (host's fallback button). Idempotent."""
+    """Reveal on request (fallback button for the host or the person in the hot
+    seat; everyone else just waits for the clock). Idempotent."""
+    host = _effective_host(db, experience)
+    if participant_id not in (
+        host.id if host else None,
+        experience.main_person_participant_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the host or the main person can do that",
+        )
     experience = _lock_experience(db, experience.id)
     game_round = (
         db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
@@ -1743,9 +1777,12 @@ def advance_round(
     db: Session,
     experience: ExperienceInstance,
     round_id: uuid.UUID,
+    participant_id: uuid.UUID,
 ) -> dict:
-    """Move from a revealed round to the next one (or the final scores). Idempotent:
-    a repeated call for a round that has already been advanced changes nothing."""
+    """Move from a revealed round to the next one (or the final scores). Only the
+    host can do this. Idempotent: a repeated call for a round that has already
+    been advanced changes nothing."""
+    _verify_host(db, participant_id, experience)
     experience = _lock_experience(db, experience.id)
     game_round = (
         db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()

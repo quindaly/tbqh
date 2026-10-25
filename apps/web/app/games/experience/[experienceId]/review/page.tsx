@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ApiError,
@@ -57,6 +65,35 @@ function statusLabel(s: ChoiceState | undefined): { text: string; tone: string }
     case "error":
       return { text: s.message || "Couldn't save", tone: "text-red-500" };
   }
+}
+
+/**
+ * A text box that grows with its text, so a long answer wraps onto more lines
+ * instead of scrolling sideways out of sight.
+ */
+function AutoGrowTextarea(
+  props: React.TextareaHTMLAttributes<HTMLTextAreaElement>
+) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const fit = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    // scrollHeight leaves out the border, which the box height includes.
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${el.scrollHeight + border}px`;
+  }, []);
+
+  // Re-fit whenever the text changes, and when the width changes (rotating a
+  // phone, resizing the window) because that changes where lines break.
+  useLayoutEffect(fit, [fit, props.value]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [fit]);
+
+  return <textarea ref={ref} rows={1} {...props} />;
 }
 
 export default function ReviewPage() {
@@ -277,17 +314,38 @@ export default function ReviewPage() {
 
   return (
     <div className="max-w-2xl mx-auto py-12 space-y-8">
-      <div className="text-center space-y-2">
-        {remaining !== null && (
-          <p
-            className={`text-lg font-mono font-bold ${
-              remaining <= 10 ? "text-red-500" : "text-gray-700 dark:text-gray-300"
-            }`}
-            aria-label={`${Math.ceil(remaining)} seconds left`}
+      {/* Stays at the top of the screen while scrolling through the answers */}
+      {remaining !== null && (
+        <div
+          className="sticky top-0 z-20 -mt-4 rounded-b-xl border-b border-x bg-white/95 dark:bg-gray-900/95 backdrop-blur px-4 py-2 shadow-sm"
+          data-testid="review-timer"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500">Time left to edit</span>
+            <span
+              className={`text-xl font-mono font-bold ${
+                remaining <= 10 ? "text-red-500" : "text-gray-700 dark:text-gray-300"
+              }`}
+              aria-label={`${Math.ceil(remaining)} seconds left`}
+            >
+              {formatClock(remaining)}
+            </span>
+          </div>
+          <div
+            className="mt-1 w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1"
+            aria-hidden="true"
           >
-            {formatClock(remaining)}
-          </p>
-        )}
+            <div
+              className={`h-1 rounded-full ${remaining <= 10 ? "bg-red-500" : "bg-purple-400"}`}
+              style={{
+                width: `${Math.min(100, (remaining / (phase?.duration_seconds || 60)) * 100)}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="text-center space-y-2">
         <h1 className="text-2xl font-bold">Review Answer Choices</h1>
         <p className="text-gray-500">
           Check the AI-generated wrong answers. Change any that don't look right — your
@@ -342,23 +400,23 @@ export default function ReviewPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
+                      <div className="flex items-start gap-2">
+                        <AutoGrowTextarea
                           value={st?.draft ?? choice.text}
                           maxLength={MAX_CHOICE_LEN}
                           aria-label={`Wrong answer for question ${round.round_number}`}
                           onChange={(e) => saver.setDraft(choice.id, e.target.value)}
                           onBlur={() => void saver.flushOne(choice.id)}
                           onKeyDown={(e) => {
+                            // Enter saves; answers are a single line of text that wraps.
                             if (e.key === "Enter") {
                               e.preventDefault();
                               void saver.flushOne(choice.id);
-                              (e.target as HTMLInputElement).blur();
+                              (e.target as HTMLTextAreaElement).blur();
                             }
                           }}
                           disabled={isRegenerating}
-                          className="flex-1 min-w-0 px-3 py-1.5 border rounded bg-white dark:bg-gray-800 text-sm disabled:opacity-60"
+                          className="flex-1 min-w-0 px-3 py-1.5 border rounded bg-white dark:bg-gray-800 text-sm leading-snug resize-none overflow-hidden break-words disabled:opacity-60"
                         />
                         <button
                           onClick={() => handleRegenerate(choice)}

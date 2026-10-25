@@ -93,6 +93,10 @@ class FakeAnswerBody(BaseModel):
     fake_text: str
 
 
+class RoundActionBody(BaseModel):
+    participant_id: str
+
+
 class MCGuessBody(BaseModel):
     participant_id: str
     choice_id: str
@@ -417,6 +421,7 @@ def get_main_person_questions(experience_id: str, background_tasks: BackgroundTa
     return {
         "game_state": exp.game_state,
         "phase": hwdyk_phases.phase_info(exp),
+        "current_index": hwdyk_phases.answer_cursor(exp),
         "questions": hwdyk.get_main_person_questions(db, exp.id),
     }
 
@@ -592,22 +597,28 @@ def submit_mc_guess(
 def reveal_hwdyk_round(
     experience_id: str,
     round_id: str,
+    body: RoundActionBody,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     exp = _hwdyk_live(db, experience_id, background_tasks)
-    return hwdyk.reveal_round(db, exp, _uuid_or_404(round_id))
+    return hwdyk.reveal_round(
+        db, exp, _uuid_or_404(round_id), _participant_uuid(body.participant_id)
+    )
 
 
 @router.post("/experiences/{experience_id}/rounds/{round_id}/hwdyk-advance")
 def advance_hwdyk_round(
     experience_id: str,
     round_id: str,
+    body: RoundActionBody,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     exp = _hwdyk_live(db, experience_id, background_tasks)
-    return hwdyk.advance_round(db, exp, _uuid_or_404(round_id))
+    return hwdyk.advance_round(
+        db, exp, _uuid_or_404(round_id), _participant_uuid(body.participant_id)
+    )
 
 
 @router.get("/experiences/{experience_id}/hwdyk/leaderboard")

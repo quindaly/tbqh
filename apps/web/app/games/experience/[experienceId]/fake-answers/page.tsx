@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getFakeAnswerQuestions,
   submitFakeAnswer,
   getHWDYKState,
 } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
+import { ConnectionBanner, LobbyNotFound } from "../../../_components/LobbyStatus";
 
 interface FakeQuestion {
   round_id: string;
@@ -49,21 +51,18 @@ export default function FakeAnswersPage() {
       .catch((e: any) => setLoadError(e.message || "Couldn't load the questions."));
   }, [experienceId, participantId, reloadKey]);
 
-  // Poll for game start after done
-  useEffect(() => {
+  // Poll for game start after done. Throws on failure so usePolling can back off.
+  const pollStart = useCallback(async () => {
     if (!allDone) return;
-    const interval = setInterval(async () => {
-      try {
-        const state = await getHWDYKState(experienceId);
-        if (state.game_state === "ready_to_start") {
-          router.push(`/games/experience/${experienceId}/hwdyk-lobby`);
-        } else if (state.game_state === "round_active") {
-          router.push(`/games/experience/${experienceId}/hwdyk-play`);
-        }
-      } catch {}
-    }, 3000);
-    return () => clearInterval(interval);
+    const state = await getHWDYKState(experienceId);
+    if (state.game_state === "ready_to_start") {
+      router.push(`/games/experience/${experienceId}/hwdyk-lobby`);
+    } else if (state.game_state === "round_active") {
+      router.push(`/games/experience/${experienceId}/hwdyk-play`);
+    }
   }, [allDone, experienceId, router]);
+
+  const { failures, fatal, gaveUp, retry } = usePolling(pollStart);
 
   async function handleSubmit() {
     if (!fakeText.trim()) {
@@ -95,6 +94,10 @@ export default function FakeAnswersPage() {
     }
   }
 
+  if (fatal) {
+    return <LobbyNotFound />;
+  }
+
   if (loadError && questions.length === 0) {
     return (
       <div className="py-12 text-center space-y-4">
@@ -119,6 +122,11 @@ export default function FakeAnswersPage() {
         <h2 className="text-2xl font-bold">All fake answers submitted! 🎭</h2>
         <p className="text-gray-500">Waiting for the host to start the game…</p>
         <div className="animate-pulse text-purple-500">●●●</div>
+        {failures > 0 && (
+          <div className="max-w-md mx-auto text-left">
+            <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />
+          </div>
+        )}
       </div>
     );
   }

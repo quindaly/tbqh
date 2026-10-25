@@ -203,7 +203,7 @@ def test_advance_helper_ends_an_overdue_round(db):
 def test_manual_reveal_cannot_cut_guessing_short(db):
     exp, host, (bea, cal), r1 = go_live(db)
     with pytest.raises(HTTPException) as e:
-        hwdyk.reveal_round(db, exp, r1.id)
+        hwdyk.reveal_round(db, exp, r1.id, host)
     assert err(e.value) == (409, "round_in_progress")
     assert exp.game_state == "round_active"
 
@@ -212,9 +212,9 @@ def test_manual_reveal_after_time_up_is_idempotent(db):
     exp, host, (bea, cal), r1 = go_live(db)
     r1.guess_deadline_at = hwdyk._now() - timedelta(seconds=1)
     db.flush()
-    assert hwdyk.reveal_round(db, exp, r1.id) == {"ok": True, "revealed": True}
+    assert hwdyk.reveal_round(db, exp, r1.id, host) == {"ok": True, "revealed": True}
     version = exp.state_version
-    assert hwdyk.reveal_round(db, exp, r1.id) == {"ok": True, "revealed": False}
+    assert hwdyk.reveal_round(db, exp, r1.id, host) == {"ok": True, "revealed": False}
     assert exp.state_version == version
 
 
@@ -235,7 +235,7 @@ def test_party_fool_points_are_not_doubled_by_repeated_reveals(db):
     hwdyk.submit_mc_guess(db, exp, r1.id, bea, correct)  # Bea right (+100)
     hwdyk.submit_mc_guess(db, exp, r1.id, cal, bea_fake.id)  # Cal fooled by Bea (+50 to Bea)
     for _ in range(3):
-        hwdyk.reveal_round(db, exp, r1.id)
+        hwdyk.reveal_round(db, exp, r1.id, host)
     scores = {s["participant_id"]: s for s in hwdyk.compute_hwdyk_scores(db, exp.id)}
     assert scores[str(bea)]["score"] == 150
     assert scores[str(bea)]["fool_count"] == 1
@@ -267,7 +267,7 @@ def test_advance_round_is_idempotent_and_gives_the_next_round_a_fresh_clock(db):
     hwdyk.submit_mc_guess(db, exp, r1.id, bea, correct)
     hwdyk.submit_mc_guess(db, exp, r1.id, cal, correct)
 
-    first = hwdyk.advance_round(db, exp, r1.id)
+    first = hwdyk.advance_round(db, exp, r1.id, host)
     assert first == {"ok": True, "is_last": False, "advanced": True}
     r2 = db.query(GameRound).filter_by(experience_instance_id=exp.id, round_number=2).one()
     deadline = r2.guess_deadline_at
@@ -275,7 +275,7 @@ def test_advance_round_is_idempotent_and_gives_the_next_round_a_fresh_clock(db):
     assert deadline > r1.guess_deadline_at
     assert sorted(r2.eligible_participant_ids) == sorted(r1.eligible_participant_ids)
 
-    second = hwdyk.advance_round(db, exp, r1.id)  # double click
+    second = hwdyk.advance_round(db, exp, r1.id, host)  # double click
     assert second["advanced"] is False
     db.refresh(r2)
     assert r2.guess_deadline_at == deadline and exp.current_round == 2
@@ -286,10 +286,10 @@ def test_last_round_completes_the_game(db):
     correct, _ = choice_ids(db, r1)
     hwdyk.submit_mc_guess(db, exp, r1.id, bea, correct)
     hwdyk.submit_mc_guess(db, exp, r1.id, cal, correct)
-    out = hwdyk.advance_round(db, exp, r1.id)
+    out = hwdyk.advance_round(db, exp, r1.id, host)
     assert out["is_last"] and out["advanced"]
     assert exp.game_state == "completed"
-    assert hwdyk.advance_round(db, exp, r1.id)["advanced"] is False
+    assert hwdyk.advance_round(db, exp, r1.id, host)["advanced"] is False
 
 
 # ---------- roster freeze ----------
@@ -326,3 +326,28 @@ def test_round_with_no_guessers_waits_for_the_deadline(db):
     assert hwdyk.close_round_if_due(db, exp.id) is False
     assert hwdyk.close_round_if_due(db, exp.id, now=r1.guess_deadline_at + GRACE + timedelta(seconds=1))
     assert exp.game_state == "round_reveal"
+
+
+# ---------- who may reveal / advance ----------
+
+
+def test_only_the_host_or_main_person_can_reveal(db):
+    exp, host, (bea, cal), r1 = go_live(db)
+    r1.guess_deadline_at = hwdyk._now() - timedelta(seconds=1)
+    db.flush()
+    with pytest.raises(HTTPException) as e:
+        hwdyk.reveal_round(db, exp, r1.id, bea)
+    assert e.value.status_code == 403
+    assert exp.game_state == "round_active"
+    assert hwdyk.reveal_round(db, exp, r1.id, host)["ok"]
+
+
+def test_only_the_host_can_advance(db):
+    exp, host, (bea, cal), r1 = go_live(db)
+    correct, _ = choice_ids(db, r1)
+    hwdyk.submit_mc_guess(db, exp, r1.id, bea, correct)
+    hwdyk.submit_mc_guess(db, exp, r1.id, cal, correct)
+    with pytest.raises(HTTPException) as e:
+        hwdyk.advance_round(db, exp, r1.id, bea)
+    assert e.value.status_code == 403
+    assert hwdyk.advance_round(db, exp, r1.id, host)["advanced"] is True

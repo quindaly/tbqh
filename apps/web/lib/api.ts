@@ -556,7 +556,7 @@ export async function getHWDYKLobby(experienceId: string) {
     game_state: string;
     state_version: number;
     phase: PhaseInfo | null;
-    progress: { answered: number; total: number } | null;
+    progress: { answered: number; total: number; current_index: number } | null;
     notice: { code: string; message: string } | null;
     game_slug: string;
     mode: string;
@@ -603,12 +603,18 @@ export async function startHWDYKSetup(experienceId: string, participantId: strin
 export async function getMainPersonQuestions(experienceId: string) {
   return apiFetch<{
     game_state: string;
+    /** The clock for the question that is up (20 seconds each). */
     phase: PhaseInfo | null;
+    /** Index of the question that is up now (0-based). */
+    current_index: number;
     questions: {
       id: string;
       prompt_text: string;
       round_number: number;
       answered: boolean;
+      /** Its time ran out without an answer, so it won't be played. */
+      skipped: boolean;
+      current: boolean;
     }[];
   }>(`/experiences/${experienceId}/main-person-questions`);
 }
@@ -619,7 +625,13 @@ export async function submitMainPersonAnswer(
   participantId: string,
   answerText: string
 ) {
-  return apiFetch<{ ok: boolean; all_answered: boolean }>(
+  return apiFetch<{
+    ok: boolean;
+    all_answered: boolean;
+    /** Clock and index of the next question (null after the last one). */
+    phase: PhaseInfo | null;
+    current_index: number | null;
+  }>(
     `/experiences/${experienceId}/main-person-answer`,
     {
       method: "POST",
@@ -836,17 +848,25 @@ export async function submitMCGuess(
   );
 }
 
-export async function revealHWDYKRound(experienceId: string, roundId: string) {
+export async function revealHWDYKRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-reveal`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 
-export async function advanceHWDYKRound(experienceId: string, roundId: string) {
+export async function advanceHWDYKRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean; is_last: boolean; advanced: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-advance`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 

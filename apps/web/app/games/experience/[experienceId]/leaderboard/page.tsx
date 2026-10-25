@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getLeaderboard, replayGame } from "@/lib/api";
+import { ApiError, getLeaderboard, replayGame } from "@/lib/api";
+import { LobbyNotFound, LobbyUnreachable } from "../../../_components/LobbyStatus";
 
 interface LeaderboardEntry {
   participant_id: string;
@@ -19,6 +20,9 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [replaying, setReplaying] = useState(false);
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [participantId, setParticipantId] = useState<string | null>(null);
 
@@ -27,11 +31,19 @@ export default function LeaderboardPage() {
   }, [experienceId]);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadFailed(false);
     getLeaderboard(experienceId)
       .then((data) => setEntries(data.leaderboard))
-      .catch(() => {})
+      .catch((e: any) => {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
+          setNotFound(true);
+        } else {
+          setLoadFailed(true);
+        }
+      })
       .finally(() => setLoading(false));
-  }, [experienceId]);
+  }, [experienceId, reloadKey]);
 
   async function handleReplay() {
     setReplaying(true);
@@ -47,8 +59,16 @@ export default function LeaderboardPage() {
     }
   }
 
+  if (notFound) {
+    return <LobbyNotFound />;
+  }
+
   if (loading) {
     return <p className="text-center py-16 text-gray-500">Loading results…</p>;
+  }
+
+  if (loadFailed) {
+    return <LobbyUnreachable onRetry={() => setReloadKey((n) => n + 1)} />;
   }
 
   const winner = entries[0];

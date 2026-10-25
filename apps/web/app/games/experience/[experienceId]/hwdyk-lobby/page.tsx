@@ -383,19 +383,22 @@ export default function HWDYKLobbyPage() {
         </div>
       )}
 
-      {/* STATE: main_person_answering — everyone sees who and how long */}
+      {/* STATE: main_person_answering: everyone sees who, which question and how long */}
       {lobby.game_state === "main_person_answering" && (
         <div className="text-center py-4 space-y-2">
           <div className="animate-pulse text-purple-500 text-xl">✍️</div>
           <p className="text-gray-500">
             <span role="status">
-              {isMainPerson ? "You're" : `${mainPersonName} is`} answering questions
+              {isMainPerson ? "You're" : `${mainPersonName} is`} answering{" "}
+              {lobby.progress
+                ? `question ${Math.min(lobby.progress.current_index + 1, lobby.progress.total)} of ${lobby.progress.total}`
+                : "questions"}
             </span>
             {remaining !== null && <span>, {formatClock(remaining)} remaining</span>}
           </p>
           {lobby.progress && (
             <p className="text-sm text-gray-400">
-              {lobby.progress.answered} of {lobby.progress.total} answered
+              {lobby.progress.answered} answered
             </p>
           )}
         </div>

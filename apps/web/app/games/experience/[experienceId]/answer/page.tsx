@@ -17,6 +17,8 @@ interface Question {
   prompt_text: string;
   round_number: number;
   answered: boolean;
+  skipped: boolean;
+  current: boolean;
 }
 
 const MIN_ANSWER_LEN = 3;
@@ -27,15 +29,20 @@ export default function AnswerPage() {
   const lobbyPath = `/games/experience/${experienceId}/hwdyk-lobby`;
 
   const [questions, setQuestions] = useState<Question[]>([]);
+  // The server decides which question is up; each one has its own 20 seconds.
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answer, setAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [phase, setPhase] = useState<PhaseInfo | null>(null);
   const [phaseReceivedAt, setPhaseReceivedAt] = useState(0);
-  const finalizing = useRef(false);
+  // Which question we've already made a last-second save attempt for.
+  const lastGaspFor = useRef(-1);
+  const idxRef = useRef(0);
+  idxRef.current = currentIdx;
 
   const [participantId] = useState(() =>
     typeof window !== "undefined"
@@ -50,6 +57,21 @@ export default function AnswerPage() {
     setPhaseReceivedAt(Date.now());
   }, []);
 
+  // Move to the question the server says is up. If it is further on than the
+  // one on screen, the one we were on ran out of time (or was answered elsewhere).
+  const goToQuestion = useCallback(
+    (index: number, p: PhaseInfo | null, byTimeout: boolean) => {
+      if (index !== idxRef.current) {
+        setAnswer("");
+        setError("");
+        if (byTimeout) setNotice("Time's up for that one. On to the next!");
+        setCurrentIdx(index);
+      }
+      applyPhase(p);
+    },
+    [applyPhase]
+  );
+
   const loadQuestions = useCallback(async () => {
     setLoadError("");
     try {
@@ -59,26 +81,26 @@ export default function AnswerPage() {
         return;
       }
       setQuestions(res.questions);
-      applyPhase(res.phase);
-      // Resume where we left off: answers are saved one by one.
-      const next = res.questions.findIndex((q) => !q.answered);
-      if (next === -1) {
-        router.replace(lobbyPath);
-        return;
+      if (!loaded) {
+        setCurrentIdx(res.current_index);
+        idxRef.current = res.current_index;
+        applyPhase(res.phase);
+      } else {
+        goToQuestion(res.current_index, res.phase, true);
       }
-      setCurrentIdx(next);
       setLoaded(true);
     } catch (e: any) {
-      setLoadError(e.message || "Couldn't load your questions.");
+      if (!loaded) setLoadError(e.message || "Couldn't load your questions.");
     }
-  }, [experienceId, router, lobbyPath, applyPhase]);
+  }, [experienceId, router, lobbyPath, applyPhase, goToQuestion, loaded]);
 
   useEffect(() => {
     loadQuestions();
-  }, [loadQuestions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Keep the clock honest and notice when the game moves on without us
-  // (time ran out, or the host reset setup).
+  // Keep the clock honest and notice when the game moves on without us (a
+  // question timed out, or answering is over).
   const { fatal, gaveUp, retry } = usePolling(
     useCallback(async () => {
       const lobby = await getHWDYKLobby(experienceId);
@@ -86,15 +108,17 @@ export default function AnswerPage() {
         router.replace(lobbyPath);
         return;
       }
-      applyPhase(lobby.phase);
-    }, [experienceId, router, lobbyPath, applyPhase]),
+      if (lobby.progress) goToQuestion(lobby.progress.current_index, lobby.phase, true);
+      else applyPhase(lobby.phase);
+    }, [experienceId, router, lobbyPath, applyPhase, goToQuestion]),
     { baseMs: 3000 }
   );
 
   const currentQuestion = questions[currentIdx];
+  const isLast = currentIdx === questions.length - 1;
 
   const submitCurrent = useCallback(
-    async (text: string): Promise<"done" | "next" | "closed" | "error"> => {
+    async (text: string): Promise<"done" | "next" | "stale" | "error"> => {
       const q = questions[currentIdx];
       if (!q) return "error";
       try {
@@ -103,20 +127,20 @@ export default function AnswerPage() {
         setQuestions((prev) =>
           prev.map((x) => (x.id === q.id ? { ...x, answered: true } : x))
         );
+        goToQuestion(res.current_index ?? currentIdx + 1, res.phase, false);
         return "next";
       } catch (e: any) {
-        if (e instanceof ApiError && e.code === "answering_closed") return "closed";
-        if (e instanceof ApiError && e.code === "already_answered") {
-          setQuestions((prev) =>
-            prev.map((x) => (x.id === q.id ? { ...x, answered: true } : x))
-          );
-          return "next";
+        if (e instanceof ApiError && e.status === 409) {
+          // Too late (that question was skipped) or setup moved on.
+          if (e.code === "answering_closed") return "done";
+          if (e.code === "already_answered") return "next";
+          return "stale";
         }
         setError(e.message || "Couldn't save that answer. Try again.");
         return "error";
       }
     },
-    [questions, currentIdx, experienceId, participantId]
+    [questions, currentIdx, experienceId, participantId, goToQuestion]
   );
 
   async function handleSubmit() {
@@ -125,31 +149,34 @@ export default function AnswerPage() {
       setError(`Answer must be at least ${MIN_ANSWER_LEN} characters`);
       return;
     }
+    if (submitting) return;
     setSubmitting(true);
     setError("");
+    setNotice("");
     const result = await submitCurrent(text);
     setSubmitting(false);
-    if (result === "done" || result === "closed") {
-      router.push(lobbyPath);
-    } else if (result === "next") {
-      setAnswer("");
-      const nextIdx = questions.findIndex((q, i) => i > currentIdx && !q.answered);
-      if (nextIdx === -1) router.push(lobbyPath);
-      else setCurrentIdx(nextIdx);
-    }
+    if (result === "done") router.push(lobbyPath);
+    else if (result === "stale") loadQuestions();
   }
 
-  // Time's up: make one last attempt to save what is in the box (the server
-  // accepts it only if it lands inside its short grace window), then leave.
+  // This question's time is up: one last attempt to save what is in the box
+  // (the server takes it only if it lands inside its short grace window), then
+  // keep asking the server which question is up until it moves on.
   useEffect(() => {
-    if (remaining === null || remaining > 0 || finalizing.current || !loaded) return;
-    finalizing.current = true;
-    (async () => {
+    if (!loaded || remaining === null || remaining > 0) return;
+    const idx = currentIdx;
+    if (lastGaspFor.current !== idx) {
+      lastGaspFor.current = idx;
       const text = answer.trim();
-      if (text.length >= MIN_ANSWER_LEN) await submitCurrent(text);
-      router.push(lobbyPath);
-    })();
-  }, [remaining, loaded, answer, submitCurrent, router, lobbyPath]);
+      if (text.length >= MIN_ANSWER_LEN) {
+        submitCurrent(text).then((r) => {
+          if (r === "done") router.push(lobbyPath);
+        });
+      }
+    }
+    const timer = setInterval(() => loadQuestions(), 1000);
+    return () => clearInterval(timer);
+  }, [remaining, loaded, currentIdx, answer, submitCurrent, loadQuestions, router, lobbyPath]);
 
   if (!participantId) {
     return (
@@ -183,8 +210,8 @@ export default function AnswerPage() {
     return <div className="py-12 text-center text-gray-500">Loading questions…</div>;
   }
 
-  const answeredCount = questions.filter((q) => q.answered).length;
-  const low = remaining !== null && remaining <= 10;
+  const low = remaining !== null && remaining <= 5;
+  const perQuestion = phase?.duration_seconds || 20;
 
   return (
     <div className="max-w-lg mx-auto py-12 space-y-6">
@@ -200,10 +227,10 @@ export default function AnswerPage() {
         </div>
       )}
 
-      {/* Progress + clock */}
+      {/* Progress + this question's clock */}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>
-          Question {Math.min(answeredCount + 1, questions.length)} of {questions.length}
+          Question {currentIdx + 1} of {questions.length}
         </span>
         {remaining !== null && (
           <span
@@ -219,21 +246,46 @@ export default function AnswerPage() {
       <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
         <div
           className="bg-purple-600 h-2 rounded-full transition-all"
-          style={{ width: `${(answeredCount / questions.length) * 100}%` }}
+          style={{ width: `${(currentIdx / questions.length) * 100}%` }}
         />
       </div>
+      {/* The clock bar for this question */}
+      {remaining !== null && (
+        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1" aria-hidden="true">
+          <div
+            className={`h-1 rounded-full ${low ? "bg-red-500" : "bg-purple-400"}`}
+            style={{ width: `${Math.min(100, (remaining / perQuestion) * 100)}%` }}
+          />
+        </div>
+      )}
       <p className="text-xs text-gray-400">
-        Each answer is saved when you press {answeredCount === questions.length - 1 ? "Finish" : "Next"}.
-        If time runs out, the game uses the questions you've answered.
+        You have {perQuestion} seconds for each question. Press{" "}
+        {isLast ? "Finish" : "Next"} to save; if time runs out, that question is
+        skipped.
       </p>
+
+      {notice && (
+        <p role="status" className="text-sm text-yellow-700 dark:text-yellow-300">
+          {notice}
+        </p>
+      )}
 
       {/* Question */}
       <h2 className="text-xl font-semibold">{currentQuestion.prompt_text}</h2>
 
       {/* Answer input */}
       <textarea
+        key={currentQuestion.id}
+        autoFocus
         value={answer}
         onChange={(e) => setAnswer(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter saves (Shift+Enter makes a new line): quicker against the clock.
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSubmit();
+          }
+        }}
         placeholder="Type your answer…"
         rows={3}
         maxLength={120}
@@ -251,11 +303,7 @@ export default function AnswerPage() {
         disabled={submitting || answer.trim().length < MIN_ANSWER_LEN}
         className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
       >
-        {submitting
-          ? "Saving…"
-          : answeredCount === questions.length - 1
-          ? "Finish"
-          : "Next"}
+        {submitting ? "Saving…" : isLast ? "Finish" : "Next"}
       </button>
     </div>
   );

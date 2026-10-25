@@ -35,8 +35,8 @@ def test_lobby_reports_clock_and_progress(client, db):
     assert r.status_code == 200
     body = r.json()
     assert body["game_state"] == "main_person_answering"
-    assert body["phase"]["duration_seconds"] == 60
-    assert body["progress"] == {"answered": 0, "total": 3}
+    assert body["phase"]["duration_seconds"] == 20  # per question
+    assert body["progress"] == {"answered": 0, "total": 3, "current_index": 0}
     assert body["notice"] is None
 
 
@@ -56,6 +56,7 @@ def test_full_prep_flow_over_http(client, db):
     qs = client.get(f"{base}/main-person-questions").json()
     assert qs["phase"]["name"] == "main_person_answering"
     assert [q["answered"] for q in qs["questions"]] == [False, False]
+    assert qs["current_index"] == 0
 
     last = None
     for i, q in enumerate(qs["questions"]):
@@ -68,11 +69,16 @@ def test_full_prep_flow_over_http(client, db):
             },
         )
         assert last.status_code == 200
-    assert last.json() == {"ok": True, "all_answered": True}  # internal flag not leaked
+    assert last.json() == {
+        "ok": True,
+        "all_answered": True,
+        "phase": None,  # the AI takes over; nothing is ticking
+        "current_index": None,
+    }  # (the internal needs_generation flag is not leaked)
 
     review = client.get(f"{base}/review-choices", params={"participant_id": str(host)}).json()
     assert review["game_state"] == "main_person_reviewing_choices"
-    assert review["phase"]["duration_seconds"] == 60
+    assert review["phase"]["duration_seconds"] == 60  # up to 5 questions
     wrong = [c for c in review["rounds"][0]["choices"] if not c["is_correct"]]
     target = wrong[0]
     assert target["revision"] == 0
@@ -117,3 +123,29 @@ def test_malformed_ids_are_clean_errors(client, db):
         f"/api/v1/experiences/{exp.id}/review-choices", params={"participant_id": "nope"}
     )
     assert r.status_code == 400
+
+
+def test_a_slow_question_is_skipped_over_http(client, db):
+    exp, host, _ = new_game(db, num_questions=3)
+    base = f"/api/v1/experiences/{exp.id}"
+    exp.phase_deadline_at = exp.phase_deadline_at - timedelta(seconds=25)
+    exp.phase_started_at = exp.phase_started_at - timedelta(seconds=25)
+    db.flush()
+    qs = client.get(f"{base}/main-person-questions").json()  # the poll skips Q1
+    assert qs["current_index"] == 1
+    assert [(q["skipped"], q["current"]) for q in qs["questions"]] == [
+        (True, False),
+        (False, True),
+        (False, False),
+    ]
+    assert 10 < qs["phase"]["seconds_remaining"] <= 20
+    late = client.post(
+        f"{base}/main-person-answer",
+        json={
+            "prompt_instance_id": qs["questions"][0]["id"],
+            "participant_id": str(host),
+            "answer_text": "Too slow",
+        },
+    )
+    assert late.status_code == 409
+    assert late.json()["detail"]["code"] == "question_skipped"

@@ -16,16 +16,37 @@ export default function GamesPage() {
   const router = useRouter();
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadFailed(false);
     listGames()
       .then((data) => setGames(data.games))
-      .catch(() => {})
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
     return <p className="text-center py-16 text-gray-500">Loading games…</p>;
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="max-w-md mx-auto space-y-4 py-16 text-center">
+        <h1 className="text-2xl font-bold">Couldn't load the games</h1>
+        <p className="text-gray-500 dark:text-gray-400">
+          Check your connection and try again.
+        </p>
+        <button
+          onClick={() => setReloadKey((n) => n + 1)}
+          className="w-64 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   return (

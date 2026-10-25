@@ -117,7 +117,7 @@ export default function HWDYKPlayPage() {
 
   async function handleReveal() {
     try {
-      await revealHWDYKRound(experienceId, state.round.round_id);
+      await revealHWDYKRound(experienceId, state.round.round_id, participantId);
       void fetchState().catch(() => {});
     } catch (e: any) {
       setError(e.message);
@@ -126,7 +126,7 @@ export default function HWDYKPlayPage() {
 
   async function handleAdvance() {
     try {
-      const res = await advanceHWDYKRound(experienceId, state.round.round_id);
+      const res = await advanceHWDYKRound(experienceId, state.round.round_id, participantId);
       if (res.is_last) {
         router.push(`/games/experience/${experienceId}/hwdyk-leaderboard`);
       } else {

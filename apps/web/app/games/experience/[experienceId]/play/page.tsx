@@ -8,6 +8,12 @@ import {
   revealRound,
   advanceRound,
 } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
+import {
+  ConnectionBanner,
+  LobbyNotFound,
+  LobbyUnreachable,
+} from "../../../_components/LobbyStatus";
 
 interface ParticipantInfo {
   id: string;
@@ -57,8 +63,9 @@ export default function PlayPage() {
     setParticipantId(localStorage.getItem(`game_pid_${experienceId}`));
   }, [experienceId]);
 
+  // Throws on failure so usePolling can back off and stop on a missing game.
   const fetchState = useCallback(async () => {
-    try {
+    {
       const data = await getGameState(experienceId);
       setGameState(data.game_state);
       setCurrentRound(data.current_round);
@@ -81,14 +88,10 @@ export default function PlayPage() {
       if (data.game_state === "round_reveal") {
         setGuessSubmitted(false);
       }
-    } catch {}
+    }
   }, [experienceId, participantId, router]);
 
-  useEffect(() => {
-    fetchState();
-    const interval = setInterval(fetchState, 2500);
-    return () => clearInterval(interval);
-  }, [fetchState]);
+  const { failures, fatal, gaveUp, retry } = usePolling(fetchState, { baseMs: 2500 });
 
   async function handleGuess(guessedId: string) {
     if (!participantId || !round) return;
@@ -108,7 +111,7 @@ export default function PlayPage() {
     if (!round) return;
     try {
       await revealRound(experienceId, round.round_id);
-      fetchState();
+      void fetchState().catch(() => {});
     } catch (e: any) {
       setError(e.message);
     }
@@ -121,7 +124,7 @@ export default function PlayPage() {
       if (res.is_last) {
         router.push(`/games/experience/${experienceId}/leaderboard`);
       } else {
-        fetchState();
+        void fetchState().catch(() => {});
       }
     } catch (e: any) {
       setError(e.message);
@@ -131,14 +134,23 @@ export default function PlayPage() {
   const isHost = participants.find((p) => p.role === "host")?.id === participantId;
   const isAnswerOwner = round?.answering_participant_id === participantId;
 
+  if (fatal) {
+    return <LobbyNotFound />;
+  }
+
   if (!round && gameState !== "round_reveal") {
-    return <p className="text-center py-16 text-gray-500">Loading round…</p>;
+    return gaveUp ? (
+      <LobbyUnreachable onRetry={retry} />
+    ) : (
+      <p className="text-center py-16 text-gray-500">Loading round…</p>
+    );
   }
 
   // ---- Round Active ----
   if (gameState === "round_active" && round) {
     return (
       <div className="max-w-md mx-auto space-y-6 py-8">
+        {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Round {round.round_number} / {maxRounds}</h1>
           {scores.length > 0 && (
@@ -203,6 +215,7 @@ export default function PlayPage() {
   if (gameState === "round_reveal" && round) {
     return (
       <div className="max-w-md mx-auto space-y-6 py-8">
+        {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
         <h1 className="text-xl font-bold text-center">
           Round {round.round_number} — Reveal
         </h1>
