@@ -4,10 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
-from app.core.security import _signer, create_magic_link_token
+from app.core.security import _signer, create_magic_link_token, verify_magic_link_token
 from app.db.models.used_magic_link import UsedMagicLink
 from app.services.magic_links import consume_magic_link
 from app.db.models.user import User
@@ -64,6 +65,31 @@ class TestEmailsAreStoredOnce:
         assert not accounts.is_placeholder_email("quin@gmail.com")
 
 
+class TestOneAccountPerAddress:
+    """The database, not just the sign-in code, refuses two spellings of one address."""
+
+    @pytest.fixture(autouse=True)
+    def _index(self, db):
+        # Databases built before the index existed get it here, inside the test's transaction.
+        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_lower ON users (lower(email))"))
+
+    def test_a_second_spelling_is_rejected(self, db):
+        db.add(User(email="quin@example.com"))
+        db.flush()
+        db.add(User(email="Quin@Example.com"))
+        with pytest.raises(IntegrityError):
+            db.flush()
+
+    def test_different_addresses_are_fine(self, db):
+        db.add_all([User(email="a@example.com"), User(email="b@example.com")])
+        db.flush()
+
+    def test_a_case_variant_race_ends_up_with_the_one_account(self, client, db):
+        sign_in(client, "Racer@Example.com")
+        sign_in(client, "RACER@example.com")
+        assert db.query(User).filter(User.email.ilike("racer@example.com")).count() == 1
+
+
 class TestRoundTrip:
     def test_callback_sets_the_cookie_and_me_works(self, client):
         resp = sign_in(client, "friend@example.com")
@@ -117,9 +143,11 @@ class TestRoundTrip:
             assert r.headers["location"] == f"{settings.WEB_BASE_URL}/"
 
     def test_a_used_link_is_remembered_in_the_database(self, client, db):
-        before = db.query(UsedMagicLink).count()
-        sign_in(client, "row@example.com")
-        assert db.query(UsedMagicLink).count() == before + 1
+        token = create_magic_link_token("row@example.com")
+        _, jti, _ = verify_magic_link_token(token)
+        assert db.get(UsedMagicLink, jti) is None
+        client.get(f"/api/v1/auth/callback?token={token}", follow_redirects=False)
+        assert db.get(UsedMagicLink, jti) is not None
 
     def test_links_from_before_this_change_are_refused(self, client):
         old = _signer.dumps("legacy@example.com", salt="magic-link")
