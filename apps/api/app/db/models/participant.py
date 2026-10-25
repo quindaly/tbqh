@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Text, CheckConstraint
+from sqlalchemy import DateTime, ForeignKey, Text, CheckConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +28,15 @@ class Participant(Base, UUIDPKMixin, TimestampMixin):
     join_type: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # authenticated, anonymous
+
+    # Last time this person's browser checked in. Drives "away" badges, host
+    # removal of people who left, and passing the host role on.
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
 
     __table_args__ = (
         CheckConstraint("role IN ('host', 'guest')", name="ck_participant_role"),

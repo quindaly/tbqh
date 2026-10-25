@@ -15,7 +15,7 @@ from app.db.session import SessionLocal, get_db
 from app.services.games import catalog, scoring
 from app.services.games import who_knows_who as wkw
 from app.services.games import how_well_do_you_know as hwdyk
-from app.services.games import hwdyk_phases
+from app.services.games import hwdyk_phases, presence
 from app.services.games.state import get_game_state_payload
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,11 @@ class SubmitGuessBody(BaseModel):
 
 
 class StartBody(BaseModel):
+    participant_id: str
+
+
+class RemovePlayerBody(BaseModel):
+    host_participant_id: str
     participant_id: str
 
 
@@ -238,7 +243,7 @@ def create_game(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Game not found"
         )
-    if game_slug == "how-well-do-you-know":
+    if game["id"] == "how-well-do-you-know":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Use /games/how-well-do-you-know/create with mode parameter",
@@ -287,6 +292,27 @@ def start_collection(
 ):
     exp = _get_experience(db, experience_id)
     return wkw.start_answer_collection(db, exp, _participant_uuid(body.participant_id))
+
+
+@router.get("/experiences/{experience_id}/answer-progress")
+def get_answer_progress(
+    experience_id: str,
+    participant_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    exp = _get_experience(db, experience_id)
+    viewer = _participant_uuid(participant_id) if participant_id else None
+    return wkw.answer_progress(db, exp, viewer)
+
+
+@router.post("/experiences/{experience_id}/start-with-finished")
+def start_with_finished(
+    experience_id: str,
+    body: StartBody,
+    db: Session = Depends(get_db),
+):
+    exp = _get_experience(db, experience_id)
+    return wkw.start_with_finished(db, exp, _participant_uuid(body.participant_id))
 
 
 @router.get("/experiences/{experience_id}/prompts")
@@ -416,6 +442,34 @@ def replay_game(
 @router.get("/experiences/{experience_id}/hwdyk/lobby")
 def get_hwdyk_lobby(experience_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     exp = _hwdyk_live(db, experience_id, background_tasks)
+    return hwdyk.get_lobby_payload(db, exp)
+
+
+@router.post("/experiences/{experience_id}/presence")
+def check_in(
+    experience_id: str,
+    body: StartBody,
+    db: Session = Depends(get_db),
+):
+    """A game page saying "still here". Works for either game."""
+    exp = _get_any_experience(db, experience_id)
+    return presence.check_in(db, exp, _participant_uuid(body.participant_id))
+
+
+@router.post("/experiences/{experience_id}/remove-player")
+def remove_player(
+    experience_id: str,
+    body: RemovePlayerBody,
+    db: Session = Depends(get_db),
+):
+    exp = _get_hwdyk_experience(db, experience_id)
+    hwdyk.remove_player(
+        db,
+        exp,
+        _participant_uuid(body.host_participant_id),
+        _participant_uuid(body.participant_id),
+    )
+    db.refresh(exp)
     return hwdyk.get_lobby_payload(db, exp)
 
 

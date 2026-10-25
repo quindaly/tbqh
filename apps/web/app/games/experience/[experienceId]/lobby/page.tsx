@@ -13,6 +13,7 @@ import {
 } from "../../../_components/LobbyStatus";
 
 interface Participant {
+  away?: boolean;
   id: string;
   display_name: string;
   role: string;
@@ -173,7 +174,10 @@ export default function LobbyPage() {
                 {p.display_name}
                 {p.id === participantId && <span className="text-muted text-sm"> (you)</span>}
               </span>
-              {p.id === lobby.host_id && <span className="text-xs text-accent">Host</span>}
+              <span className="flex items-center gap-3">
+                {p.away && <span className="text-xs text-muted">Away</span>}
+                {p.id === lobby.host_id && <span className="text-xs text-accent">Host</span>}
+              </span>
             </li>
           ))}
         </ul>

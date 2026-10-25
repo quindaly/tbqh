@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getHWDYKLobby,
+  removePlayer,
   returnToHWDYKLobby,
   selectMainPerson,
   startHWDYKSetup,
@@ -22,6 +23,7 @@ interface Participant {
   id: string;
   display_name: string;
   role: string;
+  away?: boolean;
 }
 
 interface Absent {
@@ -112,6 +114,19 @@ export default function HWDYKLobbyPage() {
   const { failures, fatal, gaveUp, retry } = usePolling(fetchLobby);
   const remaining = useCountdown(lobby?.phase, receivedAt);
 
+  async function handleRemove(p: Participant) {
+    setActionLoading(true);
+    setError("");
+    try {
+      await removePlayer(experienceId, participantId, p.id);
+      await fetchLobby();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function handleSelectMainPerson() {
     if (!selectedMainPerson) return;
     setActionLoading(true);
@@ -196,6 +211,8 @@ export default function HWDYKLobbyPage() {
   }
 
   const isHost = participantId === lobby.host_id;
+  // Only people who have gone quiet can be removed, and only before setup starts.
+  const canRemove = isHost && lobby.game_state === "lobby";
   const isMainPerson = participantId === lobby.main_person_participant_id;
   const isAbsent = !!lobby.absent_participants?.some((p: Absent) => p.id === participantId);
   const playerCount = lobby.participants?.length || 0;
@@ -262,8 +279,19 @@ export default function HWDYKLobbyPage() {
               key={p.id}
               className="flex items-center justify-between border-b border-soft min-h-[52px] text-[17px]"
             >
-              <span>{p.display_name}</span>
-              <span className="flex gap-3">
+              <span className={p.away ? "text-muted" : ""}>{p.display_name}</span>
+              <span className="flex items-center gap-3">
+              {p.away && <span className="text-xs text-muted">Away</span>}
+              {p.away && canRemove && p.id !== participantId && (
+                <button
+                  onClick={() => handleRemove(p)}
+                  disabled={actionLoading}
+                  aria-label={`Remove ${p.display_name}`}
+                  className="text-xs underline text-muted hover:text-text min-h-[44px] px-1"
+                >
+                  Remove
+                </button>
+              )}
               {p.role === "host" && (
                 <span className="text-xs text-accent">Host</span>
               )}

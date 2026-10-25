@@ -14,7 +14,7 @@ GAMES = [
     },
     {
         "id": "how-well-do-you-know",
-        "slug": "how-well-do-you-know",
+        "slug": "the-hot-seat",
         "display_name": "The Hot Seat",
         "description": "One person answers personal questions. Everyone else guesses the correct answer from multiple choices.",
         "min_players": 3,
@@ -25,6 +25,9 @@ GAMES = [
 ]
 
 _BY_SLUG = {g["slug"]: g for g in GAMES}
+# The Hot Seat used to live at /games/how-well-do-you-know. Old links and
+# older cached pages still send that name, so it keeps resolving.
+_ALIASES = {"how-well-do-you-know": "the-hot-seat"}
 
 
 def list_games() -> list[dict]:
@@ -32,4 +35,4 @@ def list_games() -> list[dict]:
 
 
 def get_game(slug: str) -> dict | None:
-    return _BY_SLUG.get(slug)
+    return _BY_SLUG.get(_ALIASES.get(slug, slug))

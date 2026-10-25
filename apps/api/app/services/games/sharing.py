@@ -20,8 +20,8 @@ def generate_join_code() -> str:
 def generate_share_url(
     experience_instance_id: uuid.UUID, join_code: str, game_slug: str = "who-knows-who"
 ) -> str:
-    if game_slug == "how-well-do-you-know":
-        return f"{settings.WEB_BASE_URL}/games/how-well-do-you-know?code={join_code}"
+    if game_slug in ("how-well-do-you-know", "the-hot-seat"):
+        return f"{settings.WEB_BASE_URL}/games/the-hot-seat?code={join_code}"
     # Point at the join page, not the lobby: someone opening an invite link has
     # no participant yet, and the join page is what turns the code into one.
     return f"{settings.WEB_BASE_URL}/games/who-knows-who?code={join_code}"

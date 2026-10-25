@@ -2,7 +2,15 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ApiError, getGamePrompts, submitGameAnswer, getGameState } from "@/lib/api";
+import {
+  ApiError,
+  AnswerProgress,
+  getAnswerProgress,
+  getGamePrompts,
+  getGameState,
+  startWithFinished,
+  submitGameAnswer,
+} from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
 import { Eyebrow, Heading, PrimaryButton } from "../../../../_components/ui";
 import {
@@ -34,6 +42,8 @@ export default function QuestionsPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [others, setOthers] = useState<AnswerProgress | null>(null);
+  const [starting, setStarting] = useState(false);
 
   // Read straight away (not in an effect) so the first load already knows who
   // is looking. null if this device never joined.
@@ -72,6 +82,9 @@ export default function QuestionsPage() {
   const pollState = useCallback(async () => {
     if (!waitingForOthers) return;
     const state = await getGameState(experienceId, participantId);
+    // Who has finished, so nobody is left guessing why the game has not started.
+    // A hiccup here must not look like an outage, the state check above is what counts.
+    getAnswerProgress(experienceId, participantId).then(setOthers).catch(() => {});
     if (
       state.game_state === "round_active" ||
       state.game_state === "ready_to_start"
@@ -81,6 +94,12 @@ export default function QuestionsPage() {
   }, [experienceId, router, waitingForOthers, participantId]);
 
   const { failures, fatal, gaveUp, retry } = usePolling(pollState);
+
+  // Show who is still answering as soon as we start waiting, not three seconds later.
+  useEffect(() => {
+    if (!waitingForOthers) return;
+    getAnswerProgress(experienceId, participantId).then(setOthers).catch(() => {});
+  }, [waitingForOthers, experienceId, participantId]);
 
   function afterAnswer(allSubmitted?: boolean) {
     setAnswer("");
@@ -93,6 +112,20 @@ export default function QuestionsPage() {
       } else {
         setWaitingForOthers(true);
       }
+    }
+  }
+
+  async function handleStartNow() {
+    if (!participantId) return;
+    setStarting(true);
+    setError("");
+    try {
+      await startWithFinished(experienceId, participantId);
+      router.push(`/games/experience/${experienceId}/play`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -142,11 +175,52 @@ export default function QuestionsPage() {
   }
 
   if (done) {
+    const waiting = others ? others.players.filter((p) => !p.finished) : [];
     return (
-      <div className="max-w-md mx-auto py-16 space-y-4 text-center">
-        <Heading>All done</Heading>
-        <p className="text-muted">Waiting for the other players to finish their answers…</p>
-        <div className="animate-pulse text-accent text-lg">⏳</div>
+      <div className="max-w-md mx-auto py-16 space-y-6 text-center">
+        <div className="space-y-4">
+          <Heading>All done</Heading>
+          <p className="text-muted">Waiting for the other players to finish their answers…</p>
+          <div className="animate-pulse text-accent text-lg">⏳</div>
+        </div>
+
+        {others && others.players.length > 0 && (
+          <ul className="border-t border-soft text-left" aria-label="Who has finished">
+            {others.players.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between border-b border-soft min-h-[52px] text-[17px]"
+              >
+                <span className={p.finished ? "" : "text-muted"}>{p.display_name}</span>
+                <span className="text-sm text-muted tabular-nums">
+                  {p.finished
+                    ? "Done"
+                    : `${p.answered} of ${others.total_questions}${p.away ? " · away" : ""}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {others?.can_start_now && (
+          <div className="space-y-2 text-left">
+            <PrimaryButton onClick={handleStartNow} disabled={starting}>
+              {starting
+                ? "Starting…"
+                : `Start with the ${others.finished_count} who have finished`}
+            </PrimaryButton>
+            <p className="text-xs text-muted text-center">
+              {waiting.map((p) => p.display_name).join(", ")} won&apos;t be in this game but can join
+              the next one.
+            </p>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-red-500 text-sm">
+            {error}
+          </p>
+        )}
+
         {failures > 0 && (
           <div className="text-left">
             <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />

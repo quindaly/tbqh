@@ -84,7 +84,7 @@ def get_game_state_payload(
         {
             "id": str(p.id),
             "display_name": p.display_name,
-            "role": "host" if host and p.id == host.id else p.role,
+            "role": "host" if host and p.id == host.id else "guest",
         }
         for p in players
     ]
