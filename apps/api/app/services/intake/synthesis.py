@@ -58,6 +58,7 @@ def commit_group_profile(
             policy_name=policy.name,
         ),
         group_profile_synthesis_schema(),
+        temperature=0.3,
     )
 
     # Build text representation for embedding

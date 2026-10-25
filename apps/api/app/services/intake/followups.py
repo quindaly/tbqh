@@ -15,6 +15,7 @@ from app.services.llm.prompts import (
     INTAKE_EXTRACTION_SYSTEM,
     INTAKE_EXTRACTION_USER,
 )
+from app.services.intake.options import normalize_options
 from app.services.llm.schemas import intake_extraction_schema
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def generate_followups(
             excluded_categories=excluded,
         ),
         intake_extraction_schema(),
+        temperature=0.4,
     )
 
     # Create provisional group profile (not active yet)
@@ -65,20 +67,19 @@ def generate_followups(
     instances: list[PromptInstance] = []
     specs = extraction.get("followup_question_specs", [])
 
-    for spec in specs:
-        options = list(spec["options"])
-        # Ensure "Other (type your own)" is present
-        if not any("other" in o.lower() for o in options):
-            options.append("Other (type your own)")
+    for position, spec in enumerate(specs, start=1):
+        # "Other (type your own)" is always the last option, exactly once.
+        options = normalize_options(spec["options"])
 
         pi = PromptInstance(
             session_id=session.id,
             group_profile_id=profile.id,
             participant_id=participant_id,
             prompt_type="group_followup",
+            round_number=position,  # keeps the questions in the order the model wrote them
             prompt_text=spec["prompt_text"],
             options=options,
-            allow_other=spec.get("allow_other", True),
+            allow_other=True,
         )
         db.add(pi)
         instances.append(pi)

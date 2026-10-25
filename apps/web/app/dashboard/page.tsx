@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LoadError } from "../_components/LoadError";
+import { rememberSession } from "@/lib/discussionSession";
+import { Eyebrow, Heading } from "../_components/ui";
 import {
   ApiError,
   getMe,
@@ -46,12 +48,13 @@ export default function DashboardPage() {
       if (!policies.length) throw new Error("No policies found");
 
       // Create session
-      const session = await createSession(group.group_id, policies[0].id);
+      const policy = policies.find((p) => p.name === "family_friendly") ?? policies[0];
+      const session = await createSession(group.group_id, policy.id);
 
-      // Store participant ID
-      localStorage.setItem("participant_id", group.host_participant_id);
-      localStorage.setItem("session_id", session.session_id);
-      localStorage.setItem("join_code", session.join_code);
+      rememberSession(session.session_id, {
+        participantId: group.host_participant_id,
+        joinCode: session.join_code,
+      });
 
       router.push(`/session/${session.session_id}`);
     } catch (err: any) {
@@ -62,7 +65,7 @@ export default function DashboardPage() {
   };
 
   if (loading) {
-    return <p className="text-center py-16">Loading...</p>;
+    return <p className="text-center py-16 text-muted">Loading…</p>;
   }
 
   if (loadError) {
@@ -70,12 +73,11 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">
-          {isGuest ? "Welcome, Guest" : `Welcome back, ${user?.email}`}
-        </h1>
-        <p className="text-muted mt-1">
+    <div className="max-w-2xl mx-auto py-8 space-y-8">
+      <div className="space-y-3">
+        <Eyebrow>Dashboard</Eyebrow>
+        <Heading>{isGuest ? "Welcome, guest" : `Welcome back, ${user?.email}`}</Heading>
+        <p className="text-muted">
           Start a new discussion session or join an existing one.
         </p>
         {isGuest && (
@@ -100,9 +102,7 @@ export default function DashboardPage() {
           disabled={creating}
           className="p-6 border border-soft rounded-md hover:bg-soft text-left transition"
         >
-          <h2 className="text-lg font-semibold">
-            {creating ? "Creating..." : "➕ New Session"}
-          </h2>
+          <h2 className="font-serif text-2xl">{creating ? "Creating…" : "New session"}</h2>
           <p className="text-sm text-muted mt-1">
             Create a group and start generating discussion questions.
           </p>
@@ -112,7 +112,7 @@ export default function DashboardPage() {
           href="/join"
           className="p-6 border border-soft rounded-md hover:bg-soft text-left transition block"
         >
-          <h2 className="text-lg font-semibold">🔗 Join Session</h2>
+          <h2 className="font-serif text-2xl">Join a session</h2>
           <p className="text-sm text-muted mt-1">
             Join an existing session with a code.
           </p>

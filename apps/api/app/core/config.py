@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4.1-mini"
     LLM_BASE_URL: str | None = None
+    # Seconds to wait on the model before giving up, so a stuck call fails fast
+    # instead of leaving the page spinning for minutes.
+    LLM_TIMEOUT_SECONDS: float = 45.0
 
     # Embeddings
     EMBEDDINGS_MODEL: str = "text-embedding-3-small"

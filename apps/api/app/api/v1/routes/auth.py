@@ -117,7 +117,7 @@ def get_me(user: User = Depends(get_current_user)):
 def create_guest_session(response: Response, db: Session = Depends(get_db)):
     """Create an anonymous user + group + session in one shot for guests."""
     import uuid
-    import secrets
+    from app.services.join_codes import new_join_code
     from app.db.models.group import Group
     from app.db.models.participant import Participant
     from app.db.models.session import Session as SessionModel, SessionParticipant
@@ -145,14 +145,17 @@ def create_guest_session(response: Response, db: Session = Depends(get_db)):
     db.flush()
 
     # Get or create default policy
-    policy = db.query(PolicyProfile).first()
+    policy = (
+        db.query(PolicyProfile).filter(PolicyProfile.name == "family_friendly").first()
+        or db.query(PolicyProfile).order_by(PolicyProfile.created_at).first()
+    )
     if not policy:
         policy = PolicyProfile(name="default", excluded_categories=[])
         db.add(policy)
         db.flush()
 
     # Create session
-    join_code = secrets.token_urlsafe(6).upper()[:8]
+    join_code = new_join_code()
     sess = SessionModel(
         group_id=group.id,
         policy_profile_id=policy.id,

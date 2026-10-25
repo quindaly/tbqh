@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { getFavorites } from "@/lib/api";
 import { LoadError } from "../_components/LoadError";
+import { Eyebrow, Heading } from "../_components/ui";
 
 export default function FavoritesPage() {
   const [items, setItems] = useState<
@@ -21,16 +22,19 @@ export default function FavoritesPage() {
       .finally(() => setLoading(false));
   }, [reloadKey]);
 
-  if (loading) return <p className="text-center py-16">Loading favorites...</p>;
+  if (loading) return <p className="text-center py-16 text-muted">Loading favorites…</p>;
   if (error) return <LoadError message={error} onRetry={() => setReloadKey((n) => n + 1)} />;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">❤️ My Favorites</h1>
+    <div className="max-w-md mx-auto py-8 space-y-6">
+      <div className="space-y-3">
+        <Eyebrow>Your list</Eyebrow>
+        <Heading>Favorites</Heading>
+      </div>
 
       {items.length === 0 ? (
         <p className="text-muted text-center py-8">
-          No favorites yet. Like some questions to see them here!
+          No favorites yet. Tap &ldquo;Love it&rdquo; on a question and it will show up here.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -39,7 +43,7 @@ export default function FavoritesPage() {
               key={item.question_item_id}
               className="bg-surface rounded-md p-4 border border-soft"
             >
-              <p className="text-lg">{item.question_text}</p>
+              <p className="font-serif text-lg">{item.question_text}</p>
               <p className="text-xs text-muted mt-1">
                 Liked {new Date(item.liked_at).toLocaleDateString()}
               </p>

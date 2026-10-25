@@ -20,7 +20,11 @@ _client: OpenAI | None = None
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        kwargs: dict[str, Any] = {"api_key": settings.LLM_API_KEY}
+        kwargs: dict[str, Any] = {
+            "api_key": settings.LLM_API_KEY,
+            "timeout": settings.LLM_TIMEOUT_SECONDS,
+            "max_retries": 1,
+        }
         if settings.LLM_BASE_URL:
             kwargs["base_url"] = settings.LLM_BASE_URL
         if not settings.SSL_VERIFY:
