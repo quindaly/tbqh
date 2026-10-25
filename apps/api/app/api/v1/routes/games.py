@@ -417,6 +417,7 @@ def get_main_person_questions(experience_id: str, background_tasks: BackgroundTa
     return {
         "game_state": exp.game_state,
         "phase": hwdyk_phases.phase_info(exp),
+        "current_index": hwdyk_phases.answer_cursor(exp),
         "questions": hwdyk.get_main_person_questions(db, exp.id),
     }
 

@@ -2,10 +2,13 @@
 
 Preparation has three steps, and the server owns the clock for all of them:
 
-1. ``main_person_answering``   - the main person answers the questions (60s).
+1. ``main_person_answering``   - the main person answers the questions, one at a
+   time, 20 seconds each. A question that isn't answered in its 20 seconds is
+   skipped and the next one starts straight away.
 2. ``ai_generating_choices``   - the AI writes wrong answers. Untimed; the
    editing clock does not start until this finishes.
-3. ``main_person_reviewing_choices`` - the main person edits them (60s).
+3. ``main_person_reviewing_choices`` - the main person edits them: 60 seconds
+   for up to 5 questions, 90 seconds for 6 to 10.
 
 Deadlines are stored on the experience (``phase_deadline_at``). Nothing runs on a
 timer: any request that touches the game calls :func:`advance_if_expired`, which
@@ -18,8 +21,9 @@ Timeout policy (documented product decision):
 * Everything the main person saved before the deadline is kept. Answers and
   edits are saved as they go, so nothing typed but never saved is used.
 * Unedited AI wrong answers stay as the AI wrote them.
-* If the main person answered some but not all questions, the game is played
-  with the questions they did answer.
+* A question the main person didn't answer in its 20 seconds is skipped (it is
+  not played). If they answered some but not all questions, the game is played
+  with the ones they did answer.
 * If the result can't make a playable game (no questions answered, or choices
   that fail validation) the game returns to the lobby with a clear notice and
   the host can start setup again. Nothing is left half-built.
@@ -62,8 +66,11 @@ from app.services.llm.schemas import distractor_generation_schema
 
 logger = logging.getLogger(__name__)
 
-ANSWER_PHASE_SECONDS = 60
-EDIT_PHASE_SECONDS = 60
+# Answering is timed per question; editing is timed once for the whole set.
+ANSWER_SECONDS_PER_QUESTION = 20
+EDIT_SECONDS_SHORT = 60  # 1 to 5 questions
+EDIT_SECONDS_LONG = 90  # 6 to 10 questions
+EDIT_SHORT_MAX_QUESTIONS = 5
 PHASE_GRACE_SECONDS = 2
 # An AI-generation step that has made no progress for this long is retried.
 GENERATION_STALE_SECONDS = 120
@@ -92,11 +99,57 @@ def start_phase_clock(exp: ExperienceInstance, seconds: int, now: datetime | Non
 
 
 def answer_seconds(exp: ExperienceInstance) -> int:
-    return int(_config(exp).get("answer_seconds", ANSWER_PHASE_SECONDS))
+    """Seconds allowed for each question."""
+    return int(_config(exp).get("answer_seconds", ANSWER_SECONDS_PER_QUESTION))
 
 
 def edit_seconds(exp: ExperienceInstance) -> int:
-    return int(_config(exp).get("edit_seconds", EDIT_PHASE_SECONDS))
+    """Seconds for editing, by how many questions are being played."""
+    configured = _config(exp).get("edit_seconds")
+    if configured is not None:
+        return int(configured)
+    if (exp.max_rounds or 0) <= EDIT_SHORT_MAX_QUESTIONS:
+        return EDIT_SECONDS_SHORT
+    return EDIT_SECONDS_LONG
+
+
+# ---------- which question is up ----------
+
+
+def question_ids(db: Session, exp: ExperienceInstance) -> list[uuid.UUID]:
+    """The main person's questions, in the order they are asked."""
+    return [
+        pid
+        for (pid,) in db.query(PromptInstance.id)
+        .filter(
+            PromptInstance.experience_instance_id == exp.id,
+            PromptInstance.prompt_type == "hwdyk_main_person_question",
+        )
+        .order_by(PromptInstance.round_number, PromptInstance.id)
+    ]
+
+
+def answer_cursor(exp: ExperienceInstance) -> int:
+    """Index of the question currently being asked (0-based). Questions before
+    it were answered or skipped."""
+    return int(_config(exp).get("answer_cursor", 0))
+
+
+def set_answer_cursor(exp: ExperienceInstance, index: int | None) -> None:
+    config = dict(_config(exp))
+    if index is None:
+        config.pop("answer_cursor", None)
+    else:
+        config["answer_cursor"] = index
+    exp.game_config = config
+
+
+def answer_progress(db: Session, exp: ExperienceInstance) -> dict:
+    return {
+        "answered": answered_count(db, exp),
+        "total": len(question_ids(db, exp)),
+        "current_index": answer_cursor(exp),
+    }
 
 
 def phase_info(exp: ExperienceInstance, now: datetime | None = None) -> dict | None:
@@ -173,7 +226,7 @@ def advance_if_expired(
         return None
 
     if exp.game_state == ANSWERING:
-        return finish_answering(db, exp)
+        return skip_overdue_questions(db, exp, now)
     if exp.game_state == REVIEWING:
         finish_review(db, exp, timed_out=True)
         return None
@@ -183,6 +236,34 @@ def advance_if_expired(
         exp.phase_started_at = now
         db.commit()
         return "generate"
+    db.commit()
+    return None
+
+
+def skip_overdue_questions(
+    db: Session, exp: ExperienceInstance, now: datetime
+) -> str | None:
+    """The current question's 20 seconds are up: skip it and start the next.
+
+    Each question's window begins when the previous one ended (not when this
+    request happened to arrive), so if nobody was connected for a while every
+    question whose time passed is skipped, and the first one still open gets
+    its true remaining time. Caller holds the lock."""
+    per = timedelta(seconds=answer_seconds(exp))
+    total = len(question_ids(db, exp))
+    cursor = answer_cursor(exp)
+    deadline = exp.phase_deadline_at
+    grace = timedelta(seconds=PHASE_GRACE_SECONDS)
+    while cursor < total and now >= deadline + grace:
+        cursor += 1
+        deadline = deadline + per
+    exp.state_version = (exp.state_version or 0) + 1
+    if cursor >= total:
+        set_answer_cursor(exp, None)
+        return finish_answering(db, exp)
+    set_answer_cursor(exp, cursor)
+    exp.phase_started_at = deadline - per
+    exp.phase_deadline_at = deadline
     db.commit()
     return None
 
@@ -218,6 +299,7 @@ def finish_answering(db: Session, exp: ExperienceInstance) -> str | None:
         )
         return None
 
+    set_answer_cursor(exp, None)
     config = _config(exp)
     if len(rounds) != exp.max_rounds:
         # Timed out part-way: play with the questions that were answered.
@@ -266,6 +348,7 @@ def reset_to_lobby(db: Session, exp: ExperienceInstance, code: str, message: str
 
     config = dict(_config(exp))
     config.pop("regenerate_counts", None)
+    config.pop("answer_cursor", None)
     config["notice"] = {"code": code, "message": message}
     exp.game_config = config
     exp.max_rounds = int(config.get("num_questions", 5))
