@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { LoadError } from "../_components/LoadError";
 import {
+  ApiError,
   getMe,
   createGroup,
   listPolicies,
@@ -15,14 +17,22 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const isGuest = user?.email?.endsWith("@guest.local");
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError("");
     getMe()
       .then(setUser)
-      .catch(() => router.push("/login"))
+      .catch((e) => {
+        // Only a real "not signed in" answer sends you to login; an outage should not.
+        if (e instanceof ApiError && e.status === 401) router.push("/login");
+        else setLoadError(e?.message || "Couldn't reach the server.");
+      })
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router, reloadKey]);
 
   const handleCreateSession = async () => {
     setCreating(true);
@@ -53,6 +63,10 @@ export default function DashboardPage() {
 
   if (loading) {
     return <p className="text-center py-16">Loading...</p>;
+  }
+
+  if (loadError) {
+    return <LoadError message={loadError} onRetry={() => setReloadKey((n) => n + 1)} />;
   }
 
   return (

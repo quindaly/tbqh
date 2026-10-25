@@ -8,6 +8,7 @@ import {
   getMoreRecommendations,
   submitFeedback,
 } from "@/lib/api";
+import { LoadError } from "../../../_components/LoadError";
 
 interface ContentItem {
   id: string;
@@ -90,6 +91,10 @@ export default function QuestionsPage() {
         <p className="text-lg">Generating your discussion questions...</p>
       </div>
     );
+  }
+
+  if (error && items.length === 0) {
+    return <LoadError message={error} onRetry={initExperience} />;
   }
 
   const currentItem = items[currentIdx];
