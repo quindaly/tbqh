@@ -3,6 +3,7 @@ import "@fontsource-variable/instrument-sans/wght.css";
 import "./globals.css";
 import type { Metadata } from "next";
 import NavBar from "./NavBar";
+import { MeProvider, NamePrompt } from "./_components/Me";
 
 export const metadata: Metadata = {
   title: "TBQH — Group Discussion Prompts",
@@ -24,8 +25,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-screen bg-paper text-ink font-sans">
-        <NavBar />
-        <main className="max-w-2xl mx-auto px-4 py-8">{children}</main>
+        <MeProvider>
+          <NavBar />
+          <main className="max-w-2xl mx-auto px-4 py-8">{children}</main>
+          <NamePrompt />
+        </MeProvider>
       </body>
     </html>
   );

@@ -3,13 +3,15 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  ApiError,
   createExperience,
   getRecommendations,
   getMoreRecommendations,
   listExperienceItems,
   submitFeedback,
 } from "@/lib/api";
-import { readSession, rememberSession } from "@/lib/discussionSession";
+import { adoptResume, readSession, rememberSession } from "@/lib/discussionSession";
+import { isSignedIn, useMe } from "../../../_components/Me";
 import { LoadError } from "../../../_components/LoadError";
 import { Eyebrow, PrimaryButton, SecondaryButton } from "../../../_components/ui";
 
@@ -33,6 +35,7 @@ export default function QuestionsPage() {
   const params = useParams();
   const router = useRouter();
   const sessionId = params.id as string;
+  const { me, loaded: meLoaded } = useMe();
 
   const [experienceId, setExperienceId] = useState<string | null>(null);
   const [participantId, setParticipantId] = useState<string | undefined>();
@@ -44,6 +47,8 @@ export default function QuestionsPage() {
   const [exhausted, setExhausted] = useState(false);
   const [missingProfile, setMissingProfile] = useState(false);
   const [error, setError] = useState("");
+  // Loving or blocking a question needs an account; this explains and offers to sign in.
+  const [askToSignIn, setAskToSignIn] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
@@ -68,6 +73,8 @@ export default function QuestionsPage() {
     setLoading(true);
     setError("");
     try {
+      // Coming back from a sign-in link opened in another browser carries the session along.
+      adoptResume(sessionId);
       const mem = readSession(sessionId);
       setParticipantId(mem.participantId);
       if (!mem.groupProfileId) {
@@ -107,13 +114,32 @@ export default function QuestionsPage() {
     const item = items[currentIdx];
     if (!item || !experienceId || !participantId) return;
     setError("");
+    // Skip is just "next". Love it and Not for us build a profile, which needs an account.
+    if (rating !== "skip" && meLoaded && !isSignedIn(me)) {
+      setAskToSignIn(true);
+      return;
+    }
     try {
-      await submitFeedback(item.id, experienceId, participantId, rating);
+      const res = await submitFeedback(item.id, experienceId, participantId, rating);
+      // Signed in, the account has its own place in the session; keep using it.
+      if (res.participant_id && res.participant_id !== participantId) {
+        setParticipantId(res.participant_id);
+        rememberSession(sessionId, { participantId: res.participant_id });
+      }
+      setAskToSignIn(false);
       setRatings((prev) => ({ ...prev, [item.id]: rating }));
       if (currentIdx < items.length - 1) setCurrentIdx(currentIdx + 1);
     } catch (err: any) {
-      setError(err.message);
+      if (err instanceof ApiError && err.status === 401) {
+        setAskToSignIn(true);
+      } else {
+        setError(err.message);
+      }
     }
+  };
+
+  const goSignIn = () => {
+    router.push(`/login?next=${encodeURIComponent(`/session/${sessionId}/questions`)}`);
   };
 
   const handleGetMore = async () => {
@@ -200,6 +226,26 @@ export default function QuestionsPage() {
       <div className="bg-surface rounded-md p-8 border border-soft min-h-[220px] flex items-center justify-center">
         <p className="font-serif text-[26px] leading-[1.3] text-center">{item.text}</p>
       </div>
+
+      {askToSignIn && !rated && (
+        <div
+          role="status"
+          className="rounded-md border border-soft bg-surface p-4 space-y-3 text-center"
+        >
+          <p className="font-medium">Sign in to leave feedback</p>
+          <p className="text-sm text-muted">
+            Your favorites and blocked questions are saved to your account. We&rsquo;ll bring you
+            right back to this question.
+          </p>
+          <PrimaryButton onClick={goSignIn}>Sign in with email</PrimaryButton>
+          <button
+            onClick={() => setAskToSignIn(false)}
+            className="text-sm text-muted hover:underline min-h-[44px]"
+          >
+            Not now
+          </button>
+        </div>
+      )}
 
       {!rated ? (
         <div className="grid grid-cols-3 gap-2">

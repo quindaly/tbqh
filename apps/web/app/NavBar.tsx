@@ -1,18 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getMe, logout } from "@/lib/api";
+import { logout } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import ThemeToggle from "./ThemeToggle";
+import { useMe } from "./_components/Me";
 
 export default function NavBar() {
   const router = useRouter();
-  const [user, setUser] = useState<{ id: string; email: string; is_guest?: boolean } | null>(null);
+  const { me: user, setMe: setUser } = useMe();
   const isGuest = user?.is_guest ?? user?.email?.endsWith("@guest.local");
-
-  useEffect(() => {
-    getMe().then(setUser).catch(() => {});
-  }, []);
 
   async function handleLogout() {
     await logout();
@@ -28,9 +24,6 @@ export default function NavBar() {
       <div className="flex flex-wrap justify-end gap-x-4 text-sm items-center text-muted">
         {user ? (
           <>
-            <a href="/dashboard" className="hover:text-ink hover:underline">
-              Dashboard
-            </a>
             {!isGuest && (
               <>
                 <a href="/favorites" className="hover:text-ink hover:underline">

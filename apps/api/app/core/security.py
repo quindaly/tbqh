@@ -14,14 +14,17 @@ _signer = URLSafeTimedSerializer(settings.COOKIE_SECRET)
 # --------------- magic link tokens ---------------
 
 
-def create_magic_link_token(email: str) -> str:
+def create_magic_link_token(email: str, next_path: str | None = None) -> str:
     """Create a signed token for one sign-in. The random id lets the server
-    refuse a second use of the same link."""
-    return _signer.dumps({"e": email, "j": uuid.uuid4().hex}, salt="magic-link")
+    refuse a second use of the same link; ``next_path`` is where to land."""
+    data = {"e": email, "j": uuid.uuid4().hex}
+    if next_path:
+        data["n"] = next_path
+    return _signer.dumps(data, salt="magic-link")
 
 
-def verify_magic_link_token(token: str) -> tuple[str, str] | None:
-    """Return (email, link id) if the token is genuine and unexpired, else None.
+def verify_magic_link_token(token: str) -> tuple[str, str, str | None] | None:
+    """Return (email, link id, next path) if the token is genuine and unexpired.
 
     Tokens issued before links became single-use carry no id and are refused.
     They only lived ten minutes anyway.
@@ -34,7 +37,7 @@ def verify_magic_link_token(token: str) -> tuple[str, str] | None:
         return None
     if not isinstance(data, dict) or not data.get("e") or not data.get("j"):
         return None
-    return data["e"], data["j"]
+    return data["e"], data["j"], data.get("n")
 
 
 # --------------- session cookies ---------------
