@@ -26,7 +26,11 @@ function describeDetail(detail: unknown): { message?: string; code?: string } {
   if (typeof detail === "string") return { message: detail };
   if (Array.isArray(detail)) {
     const msgs = detail
-      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as any).msg) : ""))
+      .map((d) =>
+        d && typeof d === "object" && "msg" in d
+          ? String((d as any).msg).replace(/^Value error, /, "")
+          : ""
+      )
       .filter(Boolean);
     return { message: msgs.join("; ") || undefined };
   }
@@ -183,6 +187,7 @@ export async function getFollowups(sessionId: string) {
       options: string[];
       allow_other: boolean;
     }[];
+    provisional_group_profile_id: string | null;
   }>(`/sessions/${sessionId}/followups`);
 }
 
@@ -253,7 +258,9 @@ export async function getRecommendations(
       content_type: string;
       text: string;
       metadata: Record<string, unknown>;
+      feedback?: "like" | "dislike" | "skip" | null;
     }[];
+    exhausted?: boolean;
   }>(`/experiences/${experienceId}/recommendations`, {
     method: "POST",
     body: JSON.stringify({
@@ -274,7 +281,9 @@ export async function getMoreRecommendations(
       content_type: string;
       text: string;
       metadata: Record<string, unknown>;
+      feedback?: "like" | "dislike" | "skip" | null;
     }[];
+    exhausted?: boolean;
   }>(`/experiences/${experienceId}/more`, {
     method: "POST",
     body: JSON.stringify({
@@ -285,6 +294,19 @@ export async function getMoreRecommendations(
 }
 
 // ---- Feedback ----
+
+export async function listExperienceItems(experienceId: string, participantId?: string) {
+  const q = participantId ? `?participant_id=${encodeURIComponent(participantId)}` : "";
+  return apiFetch<{
+    content_items: {
+      id: string;
+      content_type: string;
+      text: string;
+      metadata: Record<string, unknown>;
+      feedback?: "like" | "dislike" | "skip" | null;
+    }[];
+  }>(`/experiences/${experienceId}/items${q}`);
+}
 
 export async function submitFeedback(
   contentItemId: string,

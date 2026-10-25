@@ -1,69 +1,116 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
 import {
   createExperience,
   getRecommendations,
   getMoreRecommendations,
+  listExperienceItems,
   submitFeedback,
 } from "@/lib/api";
+import { readSession, rememberSession } from "@/lib/discussionSession";
 import { LoadError } from "../../../_components/LoadError";
+import { Eyebrow, PrimaryButton, SecondaryButton } from "../../../_components/ui";
+
+type Rating = "like" | "dislike" | "skip";
 
 interface ContentItem {
   id: string;
   content_type: string;
   text: string;
   metadata: Record<string, unknown>;
+  feedback?: Rating | null;
 }
+
+const RATING_NOTE: Record<Rating, string> = {
+  like: "Saved to your favorites.",
+  dislike: "Got it. We won't suggest this one again.",
+  skip: "Skipped.",
+};
 
 export default function QuestionsPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.id as string;
 
   const [experienceId, setExperienceId] = useState<string | null>(null);
+  const [participantId, setParticipantId] = useState<string | undefined>();
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [exhausted, setExhausted] = useState(false);
+  const [missingProfile, setMissingProfile] = useState(false);
   const [error, setError] = useState("");
-  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, string>>({});
+  const started = useRef(false);
 
   useEffect(() => {
-    initExperience();
+    // Strict mode runs effects twice in dev; one batch is enough.
+    if (started.current) return;
+    started.current = true;
+    void initExperience();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const initExperience = async () => {
+  function showItems(list: ContentItem[]) {
+    setItems(list);
+    const done: Record<string, Rating> = {};
+    for (const it of list) if (it.feedback) done[it.id] = it.feedback;
+    setRatings(done);
+    // Resume at the first question nobody has rated yet.
+    const firstOpen = list.findIndex((it) => !it.feedback);
+    setCurrentIdx(firstOpen === -1 ? Math.max(0, list.length - 1) : firstOpen);
+  }
+
+  async function initExperience() {
     setLoading(true);
     setError("");
     try {
-      const groupProfileId = localStorage.getItem("group_profile_id")!;
-      const exp = await createExperience(sessionId, groupProfileId);
+      const mem = readSession(sessionId);
+      setParticipantId(mem.participantId);
+      if (!mem.groupProfileId) {
+        setMissingProfile(true);
+        return;
+      }
+
+      // Reloading continues the same set instead of using up fresh questions.
+      if (mem.experienceId) {
+        try {
+          setExperienceId(mem.experienceId);
+          const existing = await listExperienceItems(mem.experienceId, mem.participantId);
+          if (existing.content_items.length > 0) {
+            showItems(existing.content_items);
+            return;
+          }
+        } catch {
+          /* that set is gone; start a new one below */
+        }
+      }
+
+      const exp = await createExperience(sessionId, mem.groupProfileId);
       setExperienceId(exp.experience_instance_id);
+      rememberSession(sessionId, { experienceId: exp.experience_instance_id });
 
       const recs = await getRecommendations(exp.experience_instance_id);
-      setItems(recs.content_items);
-      setCurrentIdx(0);
+      showItems(recs.content_items);
+      setExhausted(recs.content_items.length === 0);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleFeedback = async (feedback: "like" | "dislike" | "skip") => {
+  const handleRate = async (rating: Rating) => {
     const item = items[currentIdx];
-    if (!item || !experienceId) return;
-
-    const participantId = localStorage.getItem("participant_id")!;
+    if (!item || !experienceId || !participantId) return;
+    setError("");
     try {
-      await submitFeedback(item.id, experienceId, participantId, feedback);
-      setFeedbackGiven((prev) => ({ ...prev, [item.id]: feedback }));
-
-      // Auto-advance
-      if (currentIdx < items.length - 1) {
-        setCurrentIdx(currentIdx + 1);
-      }
+      await submitFeedback(item.id, experienceId, participantId, rating);
+      setRatings((prev) => ({ ...prev, [item.id]: rating }));
+      if (currentIdx < items.length - 1) setCurrentIdx(currentIdx + 1);
     } catch (err: any) {
       setError(err.message);
     }
@@ -75,8 +122,12 @@ export default function QuestionsPage() {
     setError("");
     try {
       const recs = await getMoreRecommendations(experienceId);
-      setItems((prev) => [...prev, ...recs.content_items]);
-      setCurrentIdx(items.length); // Jump to first new item
+      if (recs.content_items.length === 0) {
+        setExhausted(true);
+      } else {
+        setItems((prev) => [...prev, ...recs.content_items]);
+        setCurrentIdx(items.length); // first new question
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -86,101 +137,114 @@ export default function QuestionsPage() {
 
   if (loading) {
     return (
-      <div className="text-center py-16 space-y-4">
-        <div className="animate-pulse text-4xl">🤔</div>
-        <p className="text-lg">Generating your discussion questions...</p>
+      <div className="max-w-md mx-auto text-center py-20 space-y-3">
+        <p className="font-serif text-2xl">Picking your questions…</p>
+        <p className="text-muted text-sm">This usually takes a moment.</p>
+      </div>
+    );
+  }
+
+  if (missingProfile) {
+    return (
+      <div className="max-w-md mx-auto text-center py-16 space-y-5">
+        <p className="text-muted">Tell us about your group first, and we&rsquo;ll pick questions to match.</p>
+        <PrimaryButton onClick={() => router.push(`/session/${sessionId}`)}>Describe your group</PrimaryButton>
       </div>
     );
   }
 
   if (error && items.length === 0) {
-    return <LoadError message={error} onRetry={initExperience} />;
+    return <LoadError message={error} onRetry={() => { started.current = false; void initExperience(); }} />;
   }
 
-  const currentItem = items[currentIdx];
+  // Nothing at all came back (no questions fit, or none have been loaded yet).
+  if (items.length === 0) {
+    return (
+      <div className="max-w-md mx-auto text-center py-16 space-y-5">
+        <h1 className="font-serif text-[28px] leading-[1.15] font-normal">No questions to show yet</h1>
+        <p className="text-muted">
+          We couldn&rsquo;t find questions that fit this group. Try describing the group a little differently.
+        </p>
+        <PrimaryButton onClick={() => router.push(`/session/${sessionId}`)}>Describe your group again</PrimaryButton>
+      </div>
+    );
+  }
+
+  const item = items[currentIdx];
+  const rated = item ? ratings[item.id] : undefined;
   const isAtEnd = currentIdx >= items.length - 1;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Discussion Questions</h1>
-        <span className="text-sm text-muted">
-          {currentIdx + 1} / {items.length}
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="w-full bg-soft rounded-full h-2">
-        <div
-          className="bg-accent h-2 rounded-full transition-all"
-          style={{ width: `${((currentIdx + 1) / items.length) * 100}%` }}
-        />
+    <div className="max-w-md mx-auto py-8 space-y-6">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Eyebrow>Step 3 of 3 · Your questions</Eyebrow>
+          <span className="text-sm text-muted">
+            {currentIdx + 1} / {items.length}
+          </span>
+        </div>
+        <div className="w-full bg-soft rounded-full h-1.5" aria-hidden>
+          <div
+            className="bg-accent h-1.5 rounded-full transition-all"
+            style={{ width: `${((currentIdx + 1) / items.length) * 100}%` }}
+          />
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 p-3 rounded-md text-sm">
+        <p role="alert" className="text-red-500 text-sm">
           {error}
-        </div>
+        </p>
       )}
 
-      {/* Question card */}
-      {currentItem && (
-        <div className="bg-surface rounded-md p-8 border border-soft min-h-[200px] flex items-center justify-center">
-          <p className="text-xl text-center leading-relaxed">
-            {currentItem.text}
-          </p>
-        </div>
-      )}
+      <div className="bg-surface rounded-md p-8 border border-soft min-h-[220px] flex items-center justify-center">
+        <p className="font-serif text-[26px] leading-[1.3] text-center">{item.text}</p>
+      </div>
 
-      {/* Feedback buttons */}
-      {currentItem && !feedbackGiven[currentItem.id] && (
-        <div className="flex gap-3 justify-center">
-          <button
-            onClick={() => handleFeedback("dislike")}
-            className="px-6 py-3 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-md hover:bg-red-200 dark:hover:bg-red-900/50 transition text-lg"
-            title="Dislike — never show this again"
+      {!rated ? (
+        <div className="grid grid-cols-3 gap-2">
+          <SecondaryButton
+            className="px-2 text-base"
+            onClick={() => handleRate("dislike")}
+            title="Don't suggest this again"
           >
-            👎 Pass
-          </button>
-          <button
-            onClick={() => handleFeedback("skip")}
-            className="px-6 py-3 bg-soft text-muted rounded-md hover:bg-soft transition text-lg"
-            title="Skip"
-          >
-            ⏭️ Skip
-          </button>
-          <button
-            onClick={() => handleFeedback("like")}
-            className="px-6 py-3 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md hover:bg-green-200 dark:hover:bg-green-900/50 transition text-lg"
-            title="Like — save to favorites"
-          >
-            ❤️ Love it
-          </button>
+            Not for us
+          </SecondaryButton>
+          <SecondaryButton className="px-2 text-base" onClick={() => handleRate("skip")}>
+            Skip
+          </SecondaryButton>
+          <PrimaryButton className="px-2 text-base" onClick={() => handleRate("like")} title="Save to favorites">
+            Love it
+          </PrimaryButton>
         </div>
-      )}
-
-      {/* Feedback confirmation */}
-      {currentItem && feedbackGiven[currentItem.id] && (
+      ) : (
         <div className="text-center space-y-3">
-          <p className="text-muted">
-            {feedbackGiven[currentItem.id] === "like"
-              ? "❤️ Saved to favorites!"
-              : feedbackGiven[currentItem.id] === "dislike"
-              ? "👎 Blocked — you won't see this again."
-              : "⏭️ Skipped"}
-          </p>
-          {!isAtEnd && (
-            <button
-              onClick={() => setCurrentIdx(currentIdx + 1)}
-              className="px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition font-medium"
-            >
-              Next Question →
-            </button>
+          <p className="text-muted">{RATING_NOTE[rated]}</p>
+          {!isAtEnd && <PrimaryButton onClick={() => setCurrentIdx(currentIdx + 1)}>Next question</PrimaryButton>}
+        </div>
+      )}
+
+      {isAtEnd && (rated || exhausted) && (
+        <div className="space-y-3">
+          {exhausted ? (
+            <p className="text-center text-muted">
+              That&rsquo;s every question we have for this group.{" "}
+              <button
+                onClick={() => router.push(`/session/${sessionId}`)}
+                className="underline hover:text-ink"
+              >
+                Describe the group differently
+              </button>{" "}
+              for more.
+            </p>
+          ) : (
+            <SecondaryButton onClick={handleGetMore} disabled={loadingMore}>
+              {loadingMore ? "Finding more…" : "Get 10 more"}
+            </SecondaryButton>
           )}
         </div>
       )}
 
-      {/* Navigation */}
       <div className="flex justify-between items-center pt-4 border-t border-soft">
         <button
           onClick={() => setCurrentIdx(Math.max(0, currentIdx - 1))}
@@ -189,21 +253,8 @@ export default function QuestionsPage() {
         >
           ← Previous
         </button>
-
-        {isAtEnd && (
-          <button
-            onClick={handleGetMore}
-            disabled={loadingMore}
-            className="px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition font-medium"
-          >
-            {loadingMore ? "Loading..." : "🔄 Get 10 More"}
-          </button>
-        )}
-
         <button
-          onClick={() =>
-            setCurrentIdx(Math.min(items.length - 1, currentIdx + 1))
-          }
+          onClick={() => setCurrentIdx(Math.min(items.length - 1, currentIdx + 1))}
           disabled={isAtEnd}
           className="text-sm text-muted hover:text-ink disabled:opacity-30"
         >

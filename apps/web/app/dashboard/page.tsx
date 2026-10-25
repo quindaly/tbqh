@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LoadError } from "../_components/LoadError";
+import { rememberSession } from "@/lib/discussionSession";
 import {
   ApiError,
   getMe,
@@ -46,12 +47,13 @@ export default function DashboardPage() {
       if (!policies.length) throw new Error("No policies found");
 
       // Create session
-      const session = await createSession(group.group_id, policies[0].id);
+      const policy = policies.find((p) => p.name === "family_friendly") ?? policies[0];
+      const session = await createSession(group.group_id, policy.id);
 
-      // Store participant ID
-      localStorage.setItem("participant_id", group.host_participant_id);
-      localStorage.setItem("session_id", session.session_id);
-      localStorage.setItem("join_code", session.join_code);
+      rememberSession(session.session_id, {
+        participantId: group.host_participant_id,
+        joinCode: session.join_code,
+      });
 
       router.push(`/session/${session.session_id}`);
     } catch (err: any) {

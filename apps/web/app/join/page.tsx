@@ -1,26 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { joinSession } from "@/lib/api";
+import { getMe, joinSession } from "@/lib/api";
+import { rememberSession } from "@/lib/discussionSession";
+import { Eyebrow, Heading, PrimaryButton } from "../_components/ui";
+
+const field = "w-full px-4 py-3 border border-line rounded-md bg-surface min-h-[56px]";
 
 export default function JoinPage() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [joinMode, setJoinMode] = useState<"anonymous" | "authenticated">("anonymous");
+  const [fromLink, setFromLink] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // An invite link carries the session and code, so friends only type their name.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const s = q.get("s");
+    const c = q.get("c");
+    if (s) setSessionId(s);
+    if (c) setJoinCode(c);
+    if (s && c) setFromLink(true);
+  }, []);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const result = await joinSession(sessionId, joinCode, displayName, joinMode);
-      localStorage.setItem("participant_id", result.participant_id);
-      localStorage.setItem("session_id", result.session_id);
+      // Signed-in people join with their account so their likes are saved to it.
+      const me = await getMe().catch(() => null);
+      const result = await joinSession(
+        sessionId.trim(),
+        joinCode.trim(),
+        displayName,
+        me ? "authenticated" : "anonymous"
+      );
+      rememberSession(result.session_id, {
+        participantId: result.participant_id,
+        joinCode: joinCode.trim().toUpperCase(),
+      });
       router.push(`/session/${result.session_id}`);
     } catch (err: any) {
       setError(err.message);
@@ -30,49 +53,53 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="max-w-md mx-auto space-y-6 py-8">
-      <h1 className="text-2xl font-bold text-center">Join a Session</h1>
+    <div className="max-w-md mx-auto py-12 space-y-8">
+      <div className="space-y-3">
+        <Eyebrow>Discussion questions</Eyebrow>
+        <Heading>Join a session</Heading>
+      </div>
       <form onSubmit={handleJoin} className="space-y-4">
+        {!fromLink && (
+          <>
+            <input
+              type="text"
+              aria-label="Session ID"
+              placeholder="Session ID"
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+              required
+              className={field}
+            />
+            <input
+              type="text"
+              aria-label="Join code"
+              placeholder="Join code"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              required
+              autoCapitalize="characters"
+              className={field}
+            />
+          </>
+        )}
         <input
           type="text"
-          placeholder="Session ID"
-          value={sessionId}
-          onChange={(e) => setSessionId(e.target.value)}
-          required
-          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
-        />
-        <input
-          type="text"
-          placeholder="Join Code"
-          value={joinCode}
-          onChange={(e) => setJoinCode(e.target.value)}
-          required
-          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
-        />
-        <input
-          type="text"
-          placeholder="Your Display Name"
+          aria-label="Your name"
+          placeholder="Your name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           required
-          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
+          maxLength={40}
+          className={field}
         />
-        <select
-          value={joinMode}
-          onChange={(e) => setJoinMode(e.target.value as any)}
-          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
-        >
-          <option value="anonymous">Join Anonymously</option>
-          <option value="authenticated">Join with Account</option>
-        </select>
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
-        >
-          {loading ? "Joining..." : "Join Session"}
-        </button>
+        {error && (
+          <p role="alert" className="text-red-500 text-sm">
+            {error}
+          </p>
+        )}
+        <PrimaryButton type="submit" disabled={loading || !displayName.trim()}>
+          {loading ? "Joining…" : "Join"}
+        </PrimaryButton>
       </form>
     </div>
   );
