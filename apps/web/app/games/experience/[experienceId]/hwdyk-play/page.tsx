@@ -9,7 +9,7 @@ import {
   revealHWDYKRound,
   advanceHWDYKRound,
 } from "@/lib/api";
-import { useCountdown } from "@/lib/countdown";
+import { formatClock, useCountdown } from "@/lib/countdown";
 import { usePolling } from "@/lib/usePolling";
 import {
   ConnectionBanner,
@@ -145,7 +145,7 @@ export default function HWDYKPlayPage() {
     return gaveUp ? (
       <LobbyUnreachable onRetry={retry} />
     ) : (
-      <div className="py-12 text-center text-gray-500">Loading…</div>
+      <div className="py-12 text-center text-muted">Loading…</div>
     );
   }
 
@@ -162,48 +162,47 @@ export default function HWDYKPlayPage() {
       <div className="max-w-lg mx-auto py-8 space-y-6">
         {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-500">
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs uppercase tracking-[0.14em] text-muted">
             Round {round.round_number} of {state.max_rounds}
           </span>
           <div
-            className={`text-lg font-mono font-bold ${
-              timeLeft <= 10 ? "text-red-500 animate-pulse" : "text-gray-700 dark:text-gray-300"
+            className={`text-[28px] tabular-nums ${
+              timeLeft <= 10 ? "text-red-500 animate-pulse" : "text-accent"
             }`}
           >
-            {Math.ceil(timeLeft)}s
+            {formatClock(timeLeft)}
           </div>
         </div>
 
         {/* Timer bar */}
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div className="w-full bg-soft h-[3px]">
           <div
-            className={`h-2 rounded-full transition-all duration-1000 ${
-              timeLeft <= 10 ? "bg-red-500" : "bg-purple-600"
+            className={`h-[3px] transition-all duration-1000 ${
+              timeLeft <= 10 ? "bg-red-500" : "bg-accent"
             }`}
             style={{ width: `${Math.min(100, (timeLeft / duration) * 100)}%` }}
           />
         </div>
 
         {/* Question */}
-        <h2 className="text-xl font-semibold text-center">
+        <h2 className="font-serif text-[32px] leading-[1.15] tracking-[-0.01em] font-normal">
           {isMainPerson ? round.question_text_self || round.question_text : round.question_text}
         </h2>
 
         {/* Main person view */}
         {isMainPerson ? (
           <div className="text-center py-8 space-y-2">
-            <p className="text-2xl">😎</p>
-            <p className="text-gray-500">
-              Sit back and relax — they're guessing about you!
+            <p className="text-muted">
+              Sit back. They're guessing about you.
             </p>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted">
               {round.guesses_submitted} of {round.total_guessers} have guessed
             </p>
             {(isHost || isMainPerson) && (round.is_locked || round.guesses_submitted >= round.total_guessers) && (
               <button
                 onClick={handleReveal}
-                className="mt-4 px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="mt-4 min-h-[44px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
               >
                 Reveal Answer
               </button>
@@ -211,11 +210,10 @@ export default function HWDYKPlayPage() {
           </div>
         ) : guessSubmitted ? (
           <div className="text-center py-8 space-y-2">
-            <p className="text-2xl">{guessResult ? "🎉" : "🤔"}</p>
-            <p className="text-gray-500">
-              Guess locked! Waiting for others…
+            <p className="text-muted">
+              Guess locked. Waiting for others…
             </p>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted">
               {round.guesses_submitted} of {round.total_guessers} have guessed
             </p>
           </div>
@@ -226,10 +224,10 @@ export default function HWDYKPlayPage() {
                 key={choice.id}
                 onClick={() => handleGuess(choice.id)}
                 disabled={timeLeft <= 0}
-                className={`w-full px-5 py-4 text-left rounded-xl border-2 transition ${
+                className={`w-full min-h-[56px] px-4 py-3.5 text-left text-[17px] leading-snug rounded-md border transition ${
                   selectedChoice === choice.id
-                    ? "border-purple-500 bg-purple-50 dark:bg-purple-900/30"
-                    : "border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700"
+                    ? "border-2 border-accent bg-selected"
+                    : "border-soft bg-surface hover:border-accent"
                 } ${timeLeft <= 0 ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 {choice.text}
@@ -247,7 +245,7 @@ export default function HWDYKPlayPage() {
         {isHost && !isMainPerson && (round.is_locked || round.guesses_submitted >= round.total_guessers) && (
           <button
             onClick={handleReveal}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
           >
             Reveal Answer
           </button>
@@ -268,11 +266,11 @@ export default function HWDYKPlayPage() {
 
     return (
       <div className="max-w-lg mx-auto py-8 space-y-6">
-        <div className="text-center">
-          <span className="text-sm text-gray-500">
+        <div>
+          <span className="text-xs uppercase tracking-[0.14em] text-muted">
             Round {round.round_number} of {state.max_rounds}
           </span>
-          <h2 className="text-xl font-semibold mt-2">
+          <h2 className="font-serif text-[32px] leading-[1.15] tracking-[-0.01em] font-normal mt-2">
             {isMainPerson ? round.question_text_self || round.question_text : round.question_text}
           </h2>
         </div>
@@ -289,18 +287,18 @@ export default function HWDYKPlayPage() {
             return (
               <div
                 key={choice.id}
-                className={`px-5 py-4 rounded-xl border-2 ${
+                className={`px-4 py-3.5 rounded-md ${
                   isCorrect
-                    ? "border-green-400 bg-green-50 dark:bg-green-900/20 dark:border-green-700"
-                    : "border-gray-200 dark:border-gray-700"
+                    ? "border-2 border-accent bg-selected"
+                    : "border border-soft bg-surface"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">
-                    {isCorrect && "✓ "}
+                  <span className="text-[17px] leading-snug">
                     {choice.text}
                   </span>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted shrink-0 pl-3">
+                    {isCorrect && <span className="text-accent">Correct · </span>}
                     {guessers.length} pick{guessers.length !== 1 ? "s" : ""}
                   </span>
                 </div>
@@ -311,10 +309,10 @@ export default function HWDYKPlayPage() {
                     {guessers.map((pid: string) => (
                       <span
                         key={pid}
-                        className={`text-xs px-2 py-1 rounded-full ${
+                        className={`text-xs px-2 py-1 rounded-md ${
                           isCorrect
-                            ? "bg-green-100 dark:bg-green-800/40 text-green-700 dark:text-green-300"
-                            : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                            ? "bg-selected text-accent"
+                            : "bg-soft text-muted"
                         }`}
                       >
                         {getPlayerName(pid)}
@@ -327,7 +325,7 @@ export default function HWDYKPlayPage() {
                 {state.mode === "party" &&
                   choice.source_type === "player_fake" &&
                   choice.created_by_participant_id && (
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-1 text-xs text-muted">
                       Submitted by {getPlayerName(choice.created_by_participant_id)}
                       {guessers.length > 0 && ` — fooled ${guessers.length}!`}
                     </p>
@@ -339,15 +337,15 @@ export default function HWDYKPlayPage() {
 
         {/* Scores */}
         {state.scores && state.scores.length > 0 && (
-          <div className="border rounded-xl p-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Scores</h3>
+          <div className="border border-soft bg-surface rounded-md p-4">
+            <h3 className="text-xs uppercase tracking-[0.14em] text-muted font-normal mb-3">Scores</h3>
             <div className="space-y-2">
               {state.scores.map((s: any) => (
                 <div
                   key={s.participant_id}
-                  className={`flex justify-between items-center px-3 py-2 rounded-lg ${
+                  className={`flex justify-between items-center px-3 py-2 rounded-md ${
                     s.participant_id === participantId
-                      ? "bg-purple-50 dark:bg-purple-900/20"
+                      ? "bg-selected"
                       : ""
                   }`}
                 >
@@ -365,7 +363,7 @@ export default function HWDYKPlayPage() {
         {isHost && (
           <button
             onClick={handleAdvance}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
           >
             {round.round_number >= state.max_rounds
               ? "Show Final Scores"
@@ -381,8 +379,8 @@ export default function HWDYKPlayPage() {
   // Fallback / loading between states
   return (
     <div className="py-12 text-center space-y-4">
-      <p className="text-gray-500">Waiting for the game to continue…</p>
-      <div className="animate-pulse text-purple-500">●●●</div>
+      <p className="text-muted">Waiting for the game to continue…</p>
+      <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getMe, logout } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import ThemeToggle from "./ThemeToggle";
 
 export default function NavBar() {
   const router = useRouter();
@@ -20,22 +21,22 @@ export default function NavBar() {
   }
 
   return (
-    <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-3 flex items-center justify-between">
-      <a href="/" className="text-xl font-bold tracking-tight">
+    <nav className="border-b border-soft bg-paper px-6 py-2 flex items-center justify-between gap-3">
+      <a href="/" className="font-serif text-[26px] font-medium tracking-[-0.01em]">
         tbqh
       </a>
-      <div className="flex gap-4 text-sm items-center">
+      <div className="flex flex-wrap justify-end gap-x-4 text-sm items-center text-muted">
         {user ? (
           <>
-            <a href="/dashboard" className="hover:underline">
+            <a href="/dashboard" className="hover:text-ink hover:underline">
               Dashboard
             </a>
             {!isGuest && (
               <>
-                <a href="/favorites" className="hover:underline">
+                <a href="/favorites" className="hover:text-ink hover:underline">
                   Favorites
                 </a>
-                <a href="/blocked" className="hover:underline">
+                <a href="/blocked" className="hover:text-ink hover:underline">
                   Blocked
                 </a>
               </>
@@ -43,14 +44,14 @@ export default function NavBar() {
             {isGuest ? (
               <a
                 href="/login"
-                className="text-blue-600 hover:underline font-medium"
+                className="text-accent hover:underline font-medium"
               >
                 Sign In
               </a>
             ) : (
               <button
                 onClick={handleLogout}
-                className="text-gray-500 hover:underline"
+                className="hover:underline"
               >
                 Sign Out
               </button>
@@ -59,11 +60,12 @@ export default function NavBar() {
         ) : (
           <a
             href="/login"
-            className="text-blue-600 hover:underline font-medium"
+            className="text-accent hover:underline font-medium"
           >
             Sign In
           </a>
         )}
+        <ThemeToggle />
       </div>
     </nav>
   );

@@ -180,7 +180,7 @@ export default function AnswerPage() {
 
   if (!participantId) {
     return (
-      <div className="py-12 text-center text-gray-500">
+      <div className="py-12 text-center text-muted">
         We couldn't tell who you are in this game. Open the game from the link you used to join.
       </div>
     );
@@ -188,17 +188,17 @@ export default function AnswerPage() {
 
   if (fatal) {
     return (
-      <div className="py-12 text-center text-gray-500">We couldn't find that game.</div>
+      <div className="py-12 text-center text-muted">We couldn't find that game.</div>
     );
   }
 
   if (loadError && !loaded) {
     return (
       <div className="py-12 text-center space-y-4">
-        <p className="text-gray-500">{loadError}</p>
+        <p className="text-muted">{loadError}</p>
         <button
           onClick={loadQuestions}
-          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+          className="min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
         >
           Try again
         </button>
@@ -207,7 +207,7 @@ export default function AnswerPage() {
   }
 
   if (!loaded || !currentQuestion) {
-    return <div className="py-12 text-center text-gray-500">Loading questions…</div>;
+    return <div className="py-12 text-center text-muted">Loading questions…</div>;
   }
 
   const low = remaining !== null && remaining <= 5;
@@ -218,7 +218,7 @@ export default function AnswerPage() {
       {gaveUp && (
         <div
           role="status"
-          className="rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm flex justify-between"
+          className="rounded-md border border-soft bg-surface px-3 py-2 text-sm flex justify-between"
         >
           <span>Connection lost. Your saved answers are safe.</span>
           <button onClick={retry} className="font-medium underline">
@@ -228,14 +228,14 @@ export default function AnswerPage() {
       )}
 
       {/* Progress + this question's clock */}
-      <div className="flex items-center justify-between text-sm text-gray-500">
-        <span>
+      <div className="flex items-baseline justify-between text-sm text-muted">
+        <span className="text-xs uppercase tracking-[0.14em]">
           Question {currentIdx + 1} of {questions.length}
         </span>
         {remaining !== null && (
           <span
-            className={`text-lg font-mono font-bold ${
-              low ? "text-red-500" : "text-gray-700 dark:text-gray-300"
+            className={`text-[28px] tabular-nums ${
+              low ? "text-red-500" : "text-accent"
             }`}
             aria-label={`${Math.ceil(remaining)} seconds left`}
           >
@@ -243,35 +243,29 @@ export default function AnswerPage() {
           </span>
         )}
       </div>
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-        <div
-          className="bg-purple-600 h-2 rounded-full transition-all"
-          style={{ width: `${(currentIdx / questions.length) * 100}%` }}
-        />
-      </div>
       {/* The clock bar for this question */}
       {remaining !== null && (
-        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1" aria-hidden="true">
+        <div className="w-full bg-soft h-[3px]" aria-hidden="true">
           <div
-            className={`h-1 rounded-full ${low ? "bg-red-500" : "bg-purple-400"}`}
+            className={`h-[3px] ${low ? "bg-red-500" : "bg-accent"}`}
             style={{ width: `${Math.min(100, (remaining / perQuestion) * 100)}%` }}
           />
         </div>
       )}
-      <p className="text-xs text-gray-400">
+      <p className="text-sm leading-relaxed text-muted">
         You have {perQuestion} seconds for each question. Press{" "}
         {isLast ? "Finish" : "Next"} to save; if time runs out, that question is
         skipped.
       </p>
 
       {notice && (
-        <p role="status" className="text-sm text-yellow-700 dark:text-yellow-300">
+        <p role="status" className="text-sm text-accent">
           {notice}
         </p>
       )}
 
       {/* Question */}
-      <h2 className="text-xl font-semibold">{currentQuestion.prompt_text}</h2>
+      <h2 className="font-serif text-[32px] leading-[1.15] tracking-[-0.01em] font-normal">{currentQuestion.prompt_text}</h2>
 
       {/* Answer input */}
       <textarea
@@ -289,7 +283,7 @@ export default function AnswerPage() {
         placeholder="Type your answer…"
         rows={3}
         maxLength={120}
-        className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 outline-none resize-none"
+        className="w-full px-4 py-3 border border-line rounded-md bg-surface text-ink resize-none"
       />
 
       {error && (
@@ -301,7 +295,7 @@ export default function AnswerPage() {
       <button
         onClick={handleSubmit}
         disabled={submitting || answer.trim().length < MIN_ANSWER_LEN}
-        className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+        className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
       >
         {submitting ? "Saving…" : isLast ? "Finish" : "Next"}
       </button>

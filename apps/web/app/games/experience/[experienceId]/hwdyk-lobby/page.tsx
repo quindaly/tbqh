@@ -191,7 +191,7 @@ export default function HWDYKLobbyPage() {
     return gaveUp ? (
       <LobbyUnreachable onRetry={retry} />
     ) : (
-      <p className="text-center py-16 text-gray-500">Loading lobby…</p>
+      <p className="text-center py-16 text-muted">Loading lobby…</p>
     );
   }
 
@@ -206,35 +206,33 @@ export default function HWDYKLobbyPage() {
 
   return (
     <div className="max-w-md mx-auto space-y-6 py-8">
-      <div className="text-center space-y-1">
-        <h1 className="text-2xl font-bold">How Well Do You Know…?</h1>
-        <div className="inline-flex items-center gap-2">
-          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-            {lobby.mode === "party" ? "Party Mode" : "Default Mode"}
-          </span>
-        </div>
+      <div className="space-y-1.5">
+        <h1 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">How well do you know…?</h1>
+        <p className="text-xs uppercase tracking-[0.14em] text-muted">
+          {lobby.mode === "party" ? "Party mode" : "Default mode"}
+        </p>
       </div>
 
       {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
 
       {/* Join code & share link */}
       {lobby.game_state !== "round_active" && lobby.game_state !== "round_reveal" && lobby.game_state !== "completed" && (
-        <div className="rounded-xl border p-4 text-center space-y-2">
-          <p className="text-sm text-gray-500">Share this code or link to invite players</p>
-          <p className="text-3xl font-mono font-bold tracking-widest">
+        <div className="rounded-md border border-line bg-surface p-5 text-center space-y-1.5">
+          <p className="text-sm text-muted">Share this code or link to invite players</p>
+          <p className="text-[40px] leading-tight tracking-[0.14em] tabular-nums">
             {lobby.join_code}
           </p>
           <div className="flex justify-center gap-3">
             <button
               onClick={copyCode}
-              className="text-sm text-purple-600 hover:underline"
+              className="text-sm text-accent hover:underline"
             >
               {copied ? "Copied!" : "Copy code"}
             </button>
             {lobby.share_url && (
               <button
                 onClick={copyLink}
-                className="text-sm text-purple-600 hover:underline"
+                className="text-sm text-accent hover:underline"
               >
                 {copiedLink ? "Link copied!" : "Copy link"}
               </button>
@@ -245,9 +243,9 @@ export default function HWDYKLobbyPage() {
 
       {/* Main person indicator */}
       {mainPersonName && (
-        <div className="rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 p-4 text-center">
-          <p className="text-xs uppercase tracking-widest text-gray-500 mb-1">In the hot seat</p>
-          <p className="text-lg font-bold text-purple-700 dark:text-purple-300">
+        <div className="rounded-md border border-accent px-5 py-4">
+          <p className="text-xs uppercase tracking-widest text-muted mb-1">In the hot seat</p>
+          <p className="font-serif text-[28px] leading-tight">
             {mainPersonName}
           </p>
         </div>
@@ -255,41 +253,39 @@ export default function HWDYKLobbyPage() {
 
       {/* Participants */}
       <div className="space-y-2">
-        <h2 className="font-semibold">
+        <h2 className="text-xs uppercase tracking-[0.14em] text-muted font-normal">
           {lobby.is_replay ? "Back in the lobby" : "Players"} ({playerCount})
         </h2>
-        <ul className="space-y-1">
+        <ul className="border-t border-soft">
           {lobby.participants?.map((p: Participant) => (
             <li
               key={p.id}
-              className="flex items-center gap-2 rounded-lg border px-3 py-2"
+              className="flex items-center justify-between border-b border-soft min-h-[52px] text-[17px]"
             >
               <span>{p.display_name}</span>
+              <span className="flex gap-3">
               {p.role === "host" && (
-                <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
-                  Host
-                </span>
+                <span className="text-xs text-accent">Host</span>
               )}
               {p.id === lobby.main_person_participant_id && (
-                <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                  ⭐ Hot seat
-                </span>
+                <span className="text-xs text-accent">Hot seat</span>
               )}
+              </span>
             </li>
           ))}
         </ul>
         {lobby.is_replay && lobby.absent_participants?.length > 0 && (
           <div className="pt-2">
-            <h3 className="text-sm text-gray-500">Not back yet</h3>
+            <h3 className="text-xs uppercase tracking-[0.14em] text-muted font-normal">Not back yet</h3>
             <ul className="space-y-1 pt-1">
               {lobby.absent_participants.map((p: Absent) => (
                 <li
                   key={p.id}
-                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-gray-400"
+                  className="flex items-center gap-2 border-b border-dashed border-soft min-h-[52px] text-muted"
                 >
                   <span>{p.display_name}</span>
                   {p.id === participantId && (
-                    <span className="text-xs text-purple-500">(you)</span>
+                    <span className="text-xs text-accent">(you)</span>
                   )}
                 </li>
               ))}
@@ -307,12 +303,12 @@ export default function HWDYKLobbyPage() {
             <button
               onClick={handleJoinThisLobby}
               disabled={actionLoading}
-              className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+              className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
             >
               {actionLoading ? "Joining…" : "Join this lobby"}
             </button>
           ) : (
-            <p className="text-center text-gray-500" role="status">
+            <p className="text-center text-muted" role="status">
               This game has already started without you. You can join the next one.
             </p>
           )}
@@ -323,7 +319,7 @@ export default function HWDYKLobbyPage() {
       {lobby.game_state === "lobby" && lobby.notice && (
         <div
           role="status"
-          className="rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200"
+          className="rounded-md border border-soft bg-surface px-3 py-2 text-sm text-ink"
         >
           {lobby.notice.message}
         </div>
@@ -342,7 +338,7 @@ export default function HWDYKLobbyPage() {
               id="main-person"
               value={selectedMainPerson || lobby.main_person_participant_id || ""}
               onChange={(e) => setSelectedMainPerson(e.target.value)}
-              className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800"
+              className="w-full px-4 py-3 border border-line rounded-md bg-surface text-ink"
             >
               <option value="">Choose a player…</option>
               {lobby.participants?.map((p: Participant) => (
@@ -357,7 +353,7 @@ export default function HWDYKLobbyPage() {
                 <button
                   onClick={handleSelectMainPerson}
                   disabled={actionLoading}
-                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  className="w-full min-h-[44px] px-4 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
                 >
                   {actionLoading ? "Selecting…" : "Confirm hot seat"}
                 </button>
@@ -369,12 +365,12 @@ export default function HWDYKLobbyPage() {
               <button
                 onClick={handleStartSetup}
                 disabled={actionLoading || playerCount < 2}
-                className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
               >
-                {actionLoading ? "Starting…" : "Start Setup"}
+                {actionLoading ? "Starting…" : "Start setup"}
               </button>
               {playerCount < 2 && (
-                <p className="text-center text-sm text-gray-500">
+                <p className="text-center text-sm text-muted">
                   Waiting for at least one more player.
                 </p>
               )}
@@ -386,8 +382,8 @@ export default function HWDYKLobbyPage() {
       {/* STATE: main_person_answering: everyone sees who, which question and how long */}
       {lobby.game_state === "main_person_answering" && (
         <div className="text-center py-4 space-y-2">
-          <div className="animate-pulse text-purple-500 text-xl">✍️</div>
-          <p className="text-gray-500">
+          <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <p className="text-muted">
             <span role="status">
               {isMainPerson ? "You're" : `${mainPersonName} is`} answering{" "}
               {lobby.progress
@@ -397,7 +393,7 @@ export default function HWDYKLobbyPage() {
             {remaining !== null && <span>, {formatClock(remaining)} remaining</span>}
           </p>
           {lobby.progress && (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted">
               {lobby.progress.answered} answered
             </p>
           )}
@@ -408,8 +404,8 @@ export default function HWDYKLobbyPage() {
           time doesn't start until the choices are ready) */}
       {lobby.game_state === "ai_generating_choices" && (
         <div className="text-center py-4 space-y-2">
-          <div className="animate-pulse text-purple-500">●●●</div>
-          <p className="text-gray-500" role="status">
+          <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <p className="text-muted" role="status">
             Generating answer choices…
           </p>
         </div>
@@ -418,8 +414,8 @@ export default function HWDYKLobbyPage() {
       {/* STATE: main_person_reviewing_choices */}
       {lobby.game_state === "main_person_reviewing_choices" && (
         <div className="text-center py-4 space-y-2">
-          <div className="animate-pulse text-purple-500 text-xl">🔍</div>
-          <p className="text-gray-500">
+          <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <p className="text-muted">
             <span role="status">
               {isMainPerson ? "You're" : `${mainPersonName} is`} reviewing answer choices
             </span>
@@ -431,8 +427,8 @@ export default function HWDYKLobbyPage() {
       {/* STATE: players_submitting_fake_answers — main person waits */}
       {lobby.game_state === "players_submitting_fake_answers" && isMainPerson && (
         <div className="text-center py-4 space-y-2">
-          <div className="animate-pulse text-purple-500 text-xl">🎭</div>
-          <p className="text-gray-500">
+          <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
+          <p className="text-muted">
             Players are writing fake answers…
           </p>
         </div>
@@ -441,19 +437,19 @@ export default function HWDYKLobbyPage() {
       {/* STATE: ready_to_start — host can launch */}
       {lobby.game_state === "ready_to_start" && (
         <div className="space-y-3">
-          <p className="text-center text-green-600 font-medium" role="status">
-            Preparation complete 🎉
+          <p className="text-center text-ink font-medium" role="status">
+            Everyone is ready.
           </p>
           {isHost ? (
             <button
               onClick={handleStartLive}
               disabled={actionLoading}
-              className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
             >
-              {actionLoading ? "Starting…" : "Start Live Game!"}
+              {actionLoading ? "Starting…" : "Start the game"}
             </button>
           ) : (
-            <p className="text-center text-gray-500">
+            <p className="text-center text-muted">
               Waiting for the host to start the game…
             </p>
           )}
@@ -462,7 +458,7 @@ export default function HWDYKLobbyPage() {
 
       {/* Non-host waiting message for lobby state */}
       {lobby.game_state === "lobby" && !isHost && !isAbsent && (
-        <p className="text-center text-gray-500">
+        <p className="text-center text-muted">
           Waiting for the host to configure and start…
         </p>
       )}

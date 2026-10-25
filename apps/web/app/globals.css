@@ -3,21 +3,61 @@
 @tailwind utilities;
 
 :root {
-  --foreground: #111;
-  --background: #fafafa;
+  /* Paper (light) */
+  --bg: #ecebe6;
+  --surface: #fefaf7;
+  --ink: #1a1916;
+  --muted: #5e5a52;
+  --line: #1a1916;
+  --soft: #d3d1c9;
+  --accent: #8a4b38;
+  --selected: #f2e3db;
+  --btn: #1a1916;
+  --btn-text: #fefaf7;
+  color-scheme: light;
+}
+
+/* Night (dark): the device setting, unless the person picked Light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a09;
+    --surface: #131311;
+    --ink: #f3f1ec;
+    --muted: #a8a399;
+    --line: #3a3833;
+    --soft: #24231f;
+    --accent: #c8ae9c;
+    --selected: #1e1b19;
+    --btn: #ecebe6;
+    --btn-text: #0a0a09;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a09;
+  --surface: #131311;
+  --ink: #f3f1ec;
+  --muted: #a8a399;
+  --line: #3a3833;
+  --soft: #24231f;
+  --accent: #c8ae9c;
+  --selected: #1e1b19;
+  --btn: #ecebe6;
+  --btn-text: #0a0a09;
+  color-scheme: dark;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "Instrument Sans Variable", system-ui, -apple-system, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground: #eee;
-    --background: #111;
-  }
+/* Visible keyboard focus in both themes. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Gentle fade for the lobby's rotating fact; nothing at all if the person
