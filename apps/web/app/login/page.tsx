@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { requestMagicLink } from "@/lib/api";
+import { withResume } from "@/lib/discussionSession";
 import { Heading, PrimaryButton, SecondaryButton } from "../_components/ui";
 
 export default function LoginPage() {
@@ -16,6 +17,9 @@ export default function LoginPage() {
 function LoginForm() {
   const searchParams = useSearchParams();
   const linkProblem = searchParams.get("error") === "expired";
+  // Where to land after signing in. Only paths on this site; anything else is ignored.
+  const rawNext = searchParams.get("next");
+  const next = rawNext && /^\/(?!\/)/.test(rawNext) && !rawNext.includes("\\") ? rawNext : null;
 
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
@@ -26,7 +30,7 @@ function LoginForm() {
     setError("");
     setLoading(true);
     try {
-      await requestMagicLink(email.trim());
+      await requestMagicLink(email.trim(), next ? withResume(next) : null);
       setSent(true);
     } catch (err: any) {
       setError(err.message);
@@ -40,8 +44,8 @@ function LoginForm() {
       <div className="max-w-md mx-auto flex flex-col gap-6 py-12">
         <Heading>Check your email</Heading>
         <p className="text-muted">
-          We sent a sign-in link to <span className="text-ink">{email.trim()}</span>. It works for
-          10 minutes. If you don&apos;t see it, check your spam folder.
+          We sent a sign-in link to <span className="text-ink">{email.trim()}</span>. It works
+          once, for 10 minutes. If you don&apos;t see it, check your spam folder.
         </p>
         {process.env.NODE_ENV !== "production" && (
           <p className="text-sm text-muted">

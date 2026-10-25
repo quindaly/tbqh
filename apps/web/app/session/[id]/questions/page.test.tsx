@@ -13,7 +13,22 @@ const getRecommendations = vi.fn();
 const getMoreRecommendations = vi.fn();
 const listExperienceItems = vi.fn();
 const submitFeedback = vi.fn();
+let meState: { me: any; loaded: boolean } = {
+  me: { id: "u1", email: "q@example.com", is_guest: false },
+  loaded: true,
+};
+vi.mock("../../../_components/Me", () => ({
+  useMe: () => meState,
+  isSignedIn: (me: any) => !!me && !me.is_guest,
+}));
 vi.mock("@/lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+    }
+  },
   createExperience: (...a: unknown[]) => createExperience(...a),
   getRecommendations: (...a: unknown[]) => getRecommendations(...a),
   getMoreRecommendations: (...a: unknown[]) => getMoreRecommendations(...a),
@@ -22,6 +37,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import QuestionsPage from "./page";
+import { ApiError } from "@/lib/api";
 
 const item = (n: number, feedback: string | null = null) => ({
   id: `c${n}`,
@@ -39,6 +55,7 @@ function remember(extra: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
+  meState = { me: { id: "u1", email: "q@example.com", is_guest: false }, loaded: true };
   localStorage.clear();
   createExperience.mockResolvedValue({ experience_instance_id: "e1" });
   submitFeedback.mockResolvedValue({ ok: true });
@@ -102,5 +119,94 @@ describe("discussion questions", () => {
     fireEvent.click(await screen.findByText("Love it"));
     expect(await screen.findByText("Can't reach the server.")).toBeTruthy();
     expect(screen.getByText("Question 1?")).toBeTruthy();
+  });
+
+  describe("feedback needs an account", () => {
+    const ready = () => {
+      remember({ experienceId: "e1" });
+      listExperienceItems.mockResolvedValue({ content_items: [item(1), item(2)] });
+    };
+
+    it("asks a guest to sign in when they tap Love it, and sends nothing", async () => {
+      meState = { me: { id: "g", email: "guest-1@guest.local", is_guest: true }, loaded: true };
+      ready();
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Love it"));
+      expect(await screen.findByText("Sign in to leave feedback")).toBeTruthy();
+      expect(submitFeedback).not.toHaveBeenCalled();
+      expect(screen.getByText("Question 1?")).toBeTruthy(); // still on the same question
+    });
+
+    it("does the same for Not for us when nobody is signed in", async () => {
+      meState = { me: null, loaded: true };
+      ready();
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Not for us"));
+      await screen.findByText("Sign in to leave feedback");
+      expect(submitFeedback).not.toHaveBeenCalled();
+    });
+
+    it("lets a guest skip without an account", async () => {
+      meState = { me: null, loaded: true };
+      ready();
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Skip"));
+      await waitFor(() => expect(submitFeedback).toHaveBeenCalledWith("c1", "e1", "me", "skip"));
+      expect(screen.queryByText("Sign in to leave feedback")).toBeNull();
+    });
+
+    it("sends them to sign in and back to this same page", async () => {
+      meState = { me: null, loaded: true };
+      ready();
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Love it"));
+      fireEvent.click(await screen.findByText("Sign in with email"));
+      expect(push).toHaveBeenCalledWith(
+        `/login?next=${encodeURIComponent("/session/s1/questions")}`
+      );
+    });
+
+    it("can be dismissed", async () => {
+      meState = { me: null, loaded: true };
+      ready();
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Love it"));
+      fireEvent.click(await screen.findByText("Not now"));
+      expect(screen.queryByText("Sign in to leave feedback")).toBeNull();
+    });
+
+    it("lets a signed-in person rate, and follows the participant the server uses", async () => {
+      ready();
+      submitFeedback.mockResolvedValue({ ok: true, participant_id: "me2" });
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Love it"));
+      await waitFor(() => expect(submitFeedback).toHaveBeenCalledWith("c1", "e1", "me", "like"));
+      await screen.findByText("Question 2?");
+      expect(JSON.parse(localStorage.getItem("tbqh_session_s1")!).participantId).toBe("me2");
+      fireEvent.click(await screen.findByText("Love it"));
+      await waitFor(() => expect(submitFeedback).toHaveBeenLastCalledWith("c2", "e1", "me2", "like"));
+    });
+
+    it("asks to sign in if the server says the session has ended", async () => {
+      meState = { me: { id: "u1", email: "q@example.com", is_guest: false }, loaded: false };
+      ready();
+      submitFeedback.mockRejectedValue(new ApiError("Sign in to leave feedback.", 401));
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Love it"));
+      await screen.findByText("Sign in with email");
+    });
+
+    it("picks up where it left off when opened from a sign-in link in a new browser", async () => {
+      const r = btoa(JSON.stringify({ participantId: "me", groupProfileId: "gp1", experienceId: "e1" }))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+      window.history.pushState(null, "", `/session/s1/questions?r=${r}`);
+      listExperienceItems.mockResolvedValue({ content_items: [item(1, "skip"), item(2)] });
+      render(<QuestionsPage />);
+      await screen.findByText("Question 2?");
+      expect(listExperienceItems).toHaveBeenCalledWith("e1", "me");
+      expect(window.location.search).toBe("");
+    });
   });
 });

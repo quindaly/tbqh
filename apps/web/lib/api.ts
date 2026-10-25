@@ -76,15 +76,34 @@ async function apiFetch<T>(
 
 // ---- Auth ----
 
-export async function requestMagicLink(email: string) {
+/** `next` is a path on this site to return to after signing in (default: home). */
+export async function requestMagicLink(email: string, next?: string | null) {
   return apiFetch<{ ok: boolean }>("/auth/magic-link", {
     method: "POST",
-    body: JSON.stringify({ email }),
+    body: JSON.stringify(next ? { email, next } : { email }),
   });
 }
 
+export interface Me {
+  id: string;
+  email: string;
+  is_guest?: boolean;
+  /** What to call them; null if they never gave one. */
+  name?: string | null;
+  /** Signed in for real and never asked for a name yet. */
+  needs_name?: boolean;
+}
+
 export async function getMe() {
-  return apiFetch<{ id: string; email: string; is_guest?: boolean }>("/auth/me");
+  return apiFetch<Me>("/auth/me");
+}
+
+/** Give a name, or `{ skip: true }` for "not now". */
+export async function updateMyName(update: { name?: string; skip?: boolean }) {
+  return apiFetch<{ ok: boolean; name: string | null }>("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  });
 }
 
 export async function logout() {
@@ -314,7 +333,7 @@ export async function submitFeedback(
   participantId: string,
   feedback: "like" | "dislike" | "skip"
 ) {
-  return apiFetch<{ ok: boolean }>(`/content/${contentItemId}/feedback`, {
+  return apiFetch<{ ok: boolean; participant_id: string }>(`/content/${contentItemId}/feedback`, {
     method: "POST",
     body: JSON.stringify({
       experience_instance_id: experienceInstanceId,

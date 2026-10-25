@@ -68,7 +68,7 @@ class TestRoundTrip:
     def test_callback_sets_the_cookie_and_me_works(self, client):
         resp = sign_in(client, "friend@example.com")
         assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/dashboard")
+        assert resp.headers["location"] == f"{settings.WEB_BASE_URL}/"
         assert f"{settings.SESSION_COOKIE_NAME}=" in resp.headers["set-cookie"]
         assert "HttpOnly" in resp.headers["set-cookie"]
         me = client.get("/api/v1/auth/me").json()
@@ -100,7 +100,7 @@ class TestRoundTrip:
         token = create_magic_link_token("once@example.com")
         url = f"/api/v1/auth/callback?token={token}"
         first = client.get(url, follow_redirects=False)
-        assert first.headers["location"].endswith("/dashboard")
+        assert first.headers["location"] == f"{settings.WEB_BASE_URL}/"
         client.post("/api/v1/auth/logout")
         second = client.get(url, follow_redirects=False)
         assert second.status_code == 302
@@ -114,7 +114,7 @@ class TestRoundTrip:
         assert a != b
         for t in (a, b):
             r = client.get(f"/api/v1/auth/callback?token={t}", follow_redirects=False)
-            assert r.headers["location"].endswith("/dashboard")
+            assert r.headers["location"] == f"{settings.WEB_BASE_URL}/"
 
     def test_a_used_link_is_remembered_in_the_database(self, client, db):
         before = db.query(UsedMagicLink).count()

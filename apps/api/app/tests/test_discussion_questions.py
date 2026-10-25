@@ -299,6 +299,17 @@ def test_batch_size_is_bounded(client, db):
         assert r.status_code == 422
 
 
+def _sign_in(client, email="rater@example.com"):
+    """Loving or blocking a question needs an account; this signs the client in."""
+    from app.core.security import create_magic_link_token
+
+    r = client.get(
+        f"{API}/auth/callback?token={create_magic_link_token(email)}", follow_redirects=False
+    )
+    assert r.status_code == 302
+    return email
+
+
 def _feedback(client, g, exp, item_id, value, participant=None):
     return client.post(
         f"{API}/content/{item_id}/feedback",
@@ -312,6 +323,7 @@ def _feedback(client, g, exp, item_id, value, participant=None):
 
 def test_changing_your_mind_replaces_the_rating(client, db):
     g, exp, _ = _ready_session(client, db)
+    _sign_in(client)
     item = client.post(f"{API}/experiences/{exp}/recommendations", json={}).json()["content_items"][0]
     assert _feedback(client, g, exp, item["id"], "like").status_code == 200
     assert _feedback(client, g, exp, item["id"], "dislike").status_code == 200
@@ -323,6 +335,7 @@ def test_only_people_in_the_session_can_rate(client, db):
     g, exp, _ = _ready_session(client, db)
     item = client.post(f"{API}/experiences/{exp}/recommendations", json={}).json()["content_items"][0]
     stranger = _guest(client)
+    _sign_in(client)
     r = _feedback(client, g, exp, item["id"], "like", participant=stranger["participant_id"])
     assert r.status_code == 403
     assert db.query(UserQuestionFeedback).count() == 0
@@ -337,6 +350,7 @@ def test_unknown_feedback_value_and_unshown_item_are_rejected(client, db):
 
 def test_disliked_questions_do_not_come_back(client, db):
     g, exp, _ = _ready_session(client, db, n_questions=12)
+    _sign_in(client)
     first = client.post(f"{API}/experiences/{exp}/recommendations", json={}).json()["content_items"]
     _feedback(client, g, exp, first[0]["id"], "dislike")
     nxt = client.post(f"{API}/experiences/{exp}/more", json={}).json()["content_items"]
@@ -376,12 +390,13 @@ def test_guest_sessions_use_the_family_friendly_policy_when_it_exists(client, db
 
 def test_a_reload_can_pick_up_where_it_left_off(client, db):
     g, exp, _ = _ready_session(client, db, n_questions=12)
+    _sign_in(client)
     first = client.post(f"{API}/experiences/{exp}/recommendations", json={}).json()["content_items"]
-    _feedback(client, g, exp, first[0]["id"], "like")
-    _feedback(client, g, exp, first[1]["id"], "skip")
+    me = _feedback(client, g, exp, first[0]["id"], "like").json()["participant_id"]
+    _feedback(client, g, exp, first[1]["id"], "skip", participant=me)
 
     got = client.get(
-        f"{API}/experiences/{exp}/items", params={"participant_id": g["participant_id"]}
+        f"{API}/experiences/{exp}/items", params={"participant_id": me}
     ).json()["content_items"]
     assert [i["id"] for i in got] == [i["id"] for i in first]  # same order as shown
     assert [i["feedback"] for i in got[:3]] == ["like", "skip", None]
