@@ -65,6 +65,19 @@ DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app \
 - API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
+## Sign-in email
+
+Sign in uses a one-time link sent by email. Set these on the API service:
+
+| Variable | Purpose |
+| --- | --- |
+| `EMAIL_PROVIDER` | `console` (logs the link, local development only), `resend` or `smtp` |
+| `EMAIL_FROM` | Sender, for example `tbqh <login@tbqh.app>`. The domain must be verified with your provider |
+| `RESEND_API_KEY` | For `resend` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_STARTTLS` | For `smtp` |
+
+With `console` on a deployed server, no email is sent and the API logs a warning.
+
 ## User Flow
 
 1. **Sign in** with email magic link (in dev, the link is printed to the API console)

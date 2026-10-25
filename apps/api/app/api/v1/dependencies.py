@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import verify_session_token
 from app.db.models.user import User
 from app.db.session import get_db
 
 
-def get_current_user_id(
-    session: str = Cookie(None, alias="session"),
-) -> uuid.UUID | None:
-    """Return user_id from session cookie, or None if not present."""
+def get_current_user_id(request: Request) -> uuid.UUID | None:
+    """Return user_id from the session cookie, or None if not present.
+
+    The cookie name comes from settings, the same value the sign-in route uses
+    to set it."""
+    session = request.cookies.get(settings.SESSION_COOKIE_NAME)
     if not session:
         return None
-    uid = verify_session_token(session)
-    return uid
+    return verify_session_token(session)
 
 
 def require_auth(

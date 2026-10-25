@@ -7,8 +7,8 @@ import ThemeToggle from "./ThemeToggle";
 
 export default function NavBar() {
   const router = useRouter();
-  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
-  const isGuest = user?.email?.endsWith("@guest.local");
+  const [user, setUser] = useState<{ id: string; email: string; is_guest?: boolean } | null>(null);
+  const isGuest = user?.is_guest ?? user?.email?.endsWith("@guest.local");
 
   useEffect(() => {
     getMe().then(setUser).catch(() => {});

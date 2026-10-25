@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -17,10 +18,36 @@ from app.core.security import (
 from app.db.models.user import User
 from app.db.session import get_db
 from app.api.v1.dependencies import get_current_user
-from app.services.telemetry.events import log_event
+from app.services.accounts import (
+    get_or_create_user,
+    is_placeholder_email,
+    normalize_email,
+)
+from app.services.email import send_magic_link
+from app.services.throttle import sign_in_throttle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+# Per address and per network address, so one person cannot flood an inbox.
+EMAIL_LIMIT = (5, 600)  # 5 requests per 10 minutes
+IP_LIMIT = (30, 3600)  # 30 requests per hour
+
+
+def _cookie_settings() -> dict:
+    is_prod = not settings.API_BASE_URL.startswith("http://localhost")
+    return {
+        "httponly": True,
+        "samesite": "none" if is_prod else "lax",
+        "secure": is_prod,
+    }
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 class MagicLinkRequest(BaseModel):
@@ -28,67 +55,62 @@ class MagicLinkRequest(BaseModel):
 
 
 @router.post("/magic-link")
-def request_magic_link(body: MagicLinkRequest, db: Session = Depends(get_db)):
-    """Request a magic link. In dev mode, log the link to console."""
-    token = create_magic_link_token(body.email)
+def request_magic_link(
+    body: MagicLinkRequest, request: Request, db: Session = Depends(get_db)
+):
+    """Email a one-time sign-in link."""
+    email = normalize_email(body.email)
+
+    if not sign_in_throttle.allow(f"email:{email}", *EMAIL_LIMIT) or not sign_in_throttle.allow(
+        f"ip:{_client_ip(request)}", *IP_LIMIT
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in requests. Wait a few minutes and try again.",
+        )
+
+    token = create_magic_link_token(email)
     link = f"{settings.API_BASE_URL}/api/v1/auth/callback?token={token}"
 
-    if settings.EMAIL_PROVIDER == "console":
-        logger.info("🔗 Magic link for %s: %s", body.email, link)
-        print(f"\n{'='*60}\n🔗 MAGIC LINK for {body.email}:\n{link}\n{'='*60}\n")
-    # TODO: Add real email provider
-
+    if not send_magic_link(email, link):
+        raise HTTPException(
+            status_code=503,
+            detail="We couldn't send the email right now. Please try again in a minute.",
+        )
     return {"ok": True}
 
 
 @router.get("/callback")
-def auth_callback(token: str, response: Response, db: Session = Depends(get_db)):
-    """Consume magic-link token, create/get user, set session cookie."""
+def auth_callback(token: str, db: Session = Depends(get_db)):
+    """Consume a magic-link token, create or find the user, set the session cookie."""
     email = verify_magic_link_token(token)
     if not email:
-        raise HTTPException(status_code=400, detail="Invalid or expired token")
+        # People land here from their inbox, so send them somewhere readable
+        # instead of showing a bare JSON error.
+        return RedirectResponse(
+            url=f"{settings.WEB_BASE_URL}/login?error=expired", status_code=302
+        )
 
-    # Get or create user
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        user = User(email=email)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    user = get_or_create_user(db, email)
 
-    _is_prod = not settings.API_BASE_URL.startswith("http://localhost")
-    _samesite = "none" if _is_prod else "lax"
-
-    session_token = create_session_token(user.id)
-    response.set_cookie(
-        key=settings.SESSION_COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        samesite=_samesite,
-        secure=_is_prod,
-        max_age=86400 * 30,
-    )
-
-    # Redirect to frontend
-    from fastapi.responses import RedirectResponse
-
-    redirect = RedirectResponse(
-        url=f"{settings.WEB_BASE_URL}/dashboard", status_code=302
-    )
+    redirect = RedirectResponse(url=f"{settings.WEB_BASE_URL}/dashboard", status_code=302)
     redirect.set_cookie(
         key=settings.SESSION_COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        samesite=_samesite,
-        secure=_is_prod,
+        value=create_session_token(user.id),
         max_age=86400 * 30,
+        **_cookie_settings(),
     )
     return redirect
 
 
 @router.get("/me")
 def get_me(user: User = Depends(get_current_user)):
-    return {"id": str(user.id), "email": user.email}
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        # Guests and anonymous hosts carry a stand-in address, not a real one.
+        "is_guest": is_placeholder_email(user.email),
+    }
 
 
 @router.post("/guest")
@@ -143,16 +165,11 @@ def create_guest_session(response: Response, db: Session = Depends(get_db)):
     db.add(sp)
 
     # Set session cookie so subsequent requests are "authenticated"
-    _is_prod = not settings.API_BASE_URL.startswith("http://localhost")
-    _samesite = "none" if _is_prod else "lax"
-    session_token = create_session_token(anon_user.id)
     response.set_cookie(
         key=settings.SESSION_COOKIE_NAME,
-        value=session_token,
-        httponly=True,
-        samesite=_samesite,
-        secure=_is_prod,
+        value=create_session_token(anon_user.id),
         max_age=86400 * 30,
+        **_cookie_settings(),
     )
 
     db.commit()
@@ -168,5 +185,6 @@ def create_guest_session(response: Response, db: Session = Depends(get_db)):
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(settings.SESSION_COOKIE_NAME)
+    # Same attributes as when it was set, so the browser clears the right cookie.
+    response.delete_cookie(settings.SESSION_COOKIE_NAME, **_cookie_settings())
     return {"ok": True}

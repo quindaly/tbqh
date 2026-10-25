@@ -22,8 +22,15 @@ class Settings(BaseSettings):
     EMBEDDINGS_DIMENSION: int = 1536
 
     # Email
+    # "console" (logs the link, local dev only), "resend" or "smtp".
     EMAIL_PROVIDER: str = "console"
-    EMAIL_FROM: str = "no-reply@example.com"
+    EMAIL_FROM: str = "tbqh <login@tbqh.app>"
+    RESEND_API_KEY: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_STARTTLS: bool = True
 
     # Security
     COOKIE_SECRET: str = "dev-secret-change-me"
