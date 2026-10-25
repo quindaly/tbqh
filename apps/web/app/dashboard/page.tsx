@@ -75,11 +75,11 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">
           {isGuest ? "Welcome, Guest" : `Welcome back, ${user?.email}`}
         </h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">
+        <p className="text-muted mt-1">
           Start a new discussion session or join an existing one.
         </p>
         {isGuest && (
-          <p className="text-sm text-blue-600 mt-2">
+          <p className="text-sm text-accent mt-2">
             <a href="/login" className="hover:underline font-medium">
               Sign in with email
             </a>{" "}
@@ -89,7 +89,7 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg">
+        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-md">
           {error}
         </div>
       )}
@@ -98,22 +98,22 @@ export default function DashboardPage() {
         <button
           onClick={handleCreateSession}
           disabled={creating}
-          className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-left transition"
+          className="p-6 border border-soft rounded-md hover:bg-soft text-left transition"
         >
           <h2 className="text-lg font-semibold">
             {creating ? "Creating..." : "➕ New Session"}
           </h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-muted mt-1">
             Create a group and start generating discussion questions.
           </p>
         </button>
 
         <a
           href="/join"
-          className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-left transition block"
+          className="p-6 border border-soft rounded-md hover:bg-soft text-left transition block"
         >
           <h2 className="text-lg font-semibold">🔗 Join Session</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-muted mt-1">
             Join an existing session with a code.
           </p>
         </a>

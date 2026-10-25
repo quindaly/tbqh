@@ -29,7 +29,7 @@ export default function FavoritesPage() {
       <h1 className="text-2xl font-bold">❤️ My Favorites</h1>
 
       {items.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">
+        <p className="text-muted text-center py-8">
           No favorites yet. Like some questions to see them here!
         </p>
       ) : (
@@ -37,10 +37,10 @@ export default function FavoritesPage() {
           {items.map((item) => (
             <li
               key={item.question_item_id}
-              className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700"
+              className="bg-surface rounded-md p-4 border border-soft"
             >
               <p className="text-lg">{item.question_text}</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-muted mt-1">
                 Liked {new Date(item.liked_at).toLocaleDateString()}
               </p>
             </li>

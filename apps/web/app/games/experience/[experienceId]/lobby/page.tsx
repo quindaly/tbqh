@@ -96,7 +96,7 @@ export default function LobbyPage() {
     return gaveUp ? (
       <LobbyUnreachable onRetry={retry} />
     ) : (
-      <p className="text-center py-16 text-gray-500">Loading lobby…</p>
+      <p className="text-center py-16 text-muted">Loading lobby…</p>
     );
   }
 
@@ -112,8 +112,8 @@ export default function LobbyPage() {
       {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
 
       {/* Join code */}
-      <div className="rounded-xl border p-4 text-center space-y-2">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+      <div className="rounded-md border p-4 text-center space-y-2">
+        <p className="text-sm text-muted">
           Share this code or link to invite players
         </p>
         <p className="text-3xl font-mono font-bold tracking-widest">
@@ -122,14 +122,14 @@ export default function LobbyPage() {
         <div className="flex justify-center gap-3">
           <button
             onClick={copyCode}
-            className="text-sm text-purple-600 hover:underline"
+            className="text-sm text-accent hover:underline"
           >
             {copied ? "Copied!" : "Copy code"}
           </button>
           {lobby.share_url && (
             <button
               onClick={copyLink}
-              className="text-sm text-purple-600 hover:underline"
+              className="text-sm text-accent hover:underline"
             >
               {copiedLink ? "Link copied!" : "Copy link"}
             </button>
@@ -146,11 +146,11 @@ export default function LobbyPage() {
           {lobby.participants.map((p) => (
             <li
               key={p.id}
-              className="flex items-center gap-2 rounded-lg border px-3 py-2"
+              className="flex items-center gap-2 rounded-md border px-3 py-2"
             >
               <span>{p.display_name}</span>
               {p.role === "host" && (
-                <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-selected text-accent px-2 py-0.5 rounded-full">
                   Host
                 </span>
               )}
@@ -163,21 +163,21 @@ export default function LobbyPage() {
 
       {/* Visitor who hasn't joined */}
       {!isPlayer && (
-        <div className="rounded-xl border p-4 text-center space-y-3">
+        <div className="rounded-md border p-4 text-center space-y-3">
           {canJoin ? (
             <>
-              <p className="text-gray-500 dark:text-gray-400">
+              <p className="text-muted">
                 You're not in this game yet.
               </p>
               <Link
                 href={`/games/who-knows-who?code=${lobby.join_code}`}
-                className="block w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                className="block w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition min-h-[56px] font-medium"
               >
                 Join this game
               </Link>
             </>
           ) : (
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-muted">
               This game has already started, so new players can't join.
             </p>
           )}
@@ -190,7 +190,7 @@ export default function LobbyPage() {
           <button
             onClick={handleStart}
             disabled={starting || lobby.participants.length < 2}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
           >
             {starting
               ? "Starting…"
@@ -199,7 +199,7 @@ export default function LobbyPage() {
               : "Start Game"}
           </button>
         ) : (
-          <p className="text-center text-gray-500 dark:text-gray-400">
+          <p className="text-center text-muted">
             Waiting for the host to start the game…
           </p>
         ))}

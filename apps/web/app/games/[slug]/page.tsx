@@ -71,24 +71,24 @@ export default function GameSlugPage() {
     return (
       <div className="space-y-8 py-12 text-center">
         <h1 className="text-3xl font-bold">Who Knows Who</h1>
-        <p className="text-gray-500 dark:text-gray-400">
+        <p className="text-muted">
           Answer questions about yourself, then guess who gave each answer.
         </p>
         <div className="flex flex-col gap-4 items-center">
           <button
             onClick={() => setMode("create")}
-            className="w-64 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            className="w-64 px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition font-medium"
           >
             Create Game
           </button>
           <button
             onClick={() => setMode("join")}
-            className="w-64 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            className="w-64 px-6 py-3 border border-line rounded-md hover:bg-soft transition"
           >
             Join Game
           </button>
         </div>
-        <a href="/games" className="text-sm text-gray-500 hover:underline">
+        <a href="/games" className="text-sm text-muted hover:underline">
           ← Back to games
         </a>
       </div>
@@ -107,7 +107,7 @@ export default function GameSlugPage() {
           placeholder="Your display name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 outline-none"
+          className="w-full px-4 py-3 border rounded-md bg-surface"
         />
 
         {mode === "join" && (
@@ -116,7 +116,7 @@ export default function GameSlugPage() {
             placeholder="Join code"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 outline-none uppercase tracking-widest text-center"
+            className="w-full px-4 py-3 border rounded-md bg-surface uppercase tracking-widest text-center"
             maxLength={6}
           />
         )}
@@ -126,7 +126,7 @@ export default function GameSlugPage() {
         <button
           onClick={mode === "create" ? handleCreate : handleJoin}
           disabled={loading}
-          className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+          className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
         >
           {loading ? "Loading…" : mode === "create" ? "Create" : "Join"}
         </button>
@@ -136,7 +136,7 @@ export default function GameSlugPage() {
             setMode("choose");
             setError("");
           }}
-          className="w-full text-sm text-gray-500 hover:underline"
+          className="w-full text-sm text-muted hover:underline"
         >
           ← Back
         </button>

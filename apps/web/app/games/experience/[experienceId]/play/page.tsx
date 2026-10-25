@@ -142,7 +142,7 @@ export default function PlayPage() {
     return gaveUp ? (
       <LobbyUnreachable onRetry={retry} />
     ) : (
-      <p className="text-center py-16 text-gray-500">Loading round…</p>
+      <p className="text-center py-16 text-muted">Loading round…</p>
     );
   }
 
@@ -154,34 +154,34 @@ export default function PlayPage() {
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Round {round.round_number} / {maxRounds}</h1>
           {scores.length > 0 && (
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-muted">
               Your score: {scores.find((s) => s.participant_id === participantId)?.score ?? 0}
             </span>
           )}
         </div>
 
         {/* Question + answer */}
-        <div className="rounded-xl border p-6 space-y-3">
-          <p className="text-sm text-gray-500 uppercase tracking-wide">Question</p>
+        <div className="rounded-md border p-6 space-y-3">
+          <p className="text-sm text-muted uppercase tracking-wide">Question</p>
           <p className="text-lg font-medium">{round.question_text}</p>
           <div className="border-t pt-3">
-            <p className="text-sm text-gray-500 uppercase tracking-wide">Someone answered</p>
+            <p className="text-sm text-muted uppercase tracking-wide">Someone answered</p>
             <p className="text-lg italic">&ldquo;{round.answer_text}&rdquo;</p>
           </div>
         </div>
 
         {isAnswerOwner ? (
-          <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+          <div className="text-center py-4 text-muted">
             <p className="font-medium">This round is based on your answer!</p>
             <p className="text-sm">Sit back and watch the others guess.</p>
           </div>
         ) : guessSubmitted ? (
-          <div className="text-center py-4 text-gray-500">
+          <div className="text-center py-4 text-muted">
             <p>Guess submitted! Waiting for others…</p>
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+            <p className="text-sm font-semibold text-muted">
               Who said this?
             </p>
             {participants.map((p) => (
@@ -189,7 +189,7 @@ export default function PlayPage() {
                 key={p.id}
                 onClick={() => handleGuess(p.id)}
                 disabled={submitting}
-                className="w-full px-4 py-3 rounded-lg border hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition text-left disabled:opacity-50"
+                className="w-full px-4 py-3 rounded-md border hover:border-accent hover:bg-selected transition text-left disabled:opacity-50"
               >
                 {p.display_name}
               </button>
@@ -202,7 +202,7 @@ export default function PlayPage() {
         {isHost && (
           <button
             onClick={handleReveal}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition min-h-[56px] font-medium"
           >
             Reveal Answer
           </button>
@@ -220,12 +220,12 @@ export default function PlayPage() {
           Round {round.round_number} — Reveal
         </h1>
 
-        <div className="rounded-xl border p-6 space-y-3">
+        <div className="rounded-md border p-6 space-y-3">
           <p className="text-lg font-medium">{round.question_text}</p>
           <p className="italic">&ldquo;{round.answer_text}&rdquo;</p>
           <div className="border-t pt-3">
-            <p className="text-sm text-gray-500">Answer by:</p>
-            <p className="text-lg font-bold text-purple-600">
+            <p className="text-sm text-muted">Answer by:</p>
+            <p className="text-lg font-bold text-accent">
               {round.answering_participant_name ||
                 participants.find((p) => p.id === round.answering_participant_id)
                   ?.display_name}
@@ -254,7 +254,7 @@ export default function PlayPage() {
                   }`}
                 >
                   <span>{guesser?.display_name}</span>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-muted">
                     → {guessed?.display_name} {g.is_correct ? "✓" : "✗"}
                   </span>
                 </div>
@@ -281,14 +281,14 @@ export default function PlayPage() {
         {isHost && (
           <button
             onClick={handleAdvance}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition min-h-[56px] font-medium"
           >
             {round.round_number >= maxRounds ? "Show Leaderboard" : "Next Round"}
           </button>
         )}
 
         {!isHost && (
-          <p className="text-center text-gray-500 text-sm">
+          <p className="text-center text-muted text-sm">
             Waiting for host to continue…
           </p>
         )}
@@ -296,5 +296,5 @@ export default function PlayPage() {
     );
   }
 
-  return <p className="text-center py-16 text-gray-500">Loading…</p>;
+  return <p className="text-center py-16 text-muted">Loading…</p>;
 }

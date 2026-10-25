@@ -59,7 +59,7 @@ export default function QuestionsPage() {
             value={sessionId}
             onChange={(e) => setSessionId(e.target.value)}
             required
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-4 py-3 border border-line rounded-md bg-surface"
           />
           <input
             type="text"
@@ -67,7 +67,7 @@ export default function QuestionsPage() {
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
             required
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-4 py-3 border border-line rounded-md bg-surface"
           />
           <input
             type="text"
@@ -75,20 +75,20 @@ export default function QuestionsPage() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             required
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-4 py-3 border border-line rounded-md bg-surface"
           />
           {error && <p className="text-red-500 text-sm">{error}</p>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+            className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
           >
             {loading ? "Joining…" : "Join"}
           </button>
         </form>
         <button
           onClick={() => { setMode("choose"); setError(""); }}
-          className="block mx-auto text-sm text-gray-500 hover:underline"
+          className="block mx-auto text-sm text-muted hover:underline"
         >
           ← Back
         </button>
@@ -99,7 +99,7 @@ export default function QuestionsPage() {
   return (
     <div className="space-y-8 py-12 text-center">
       <h1 className="text-3xl font-bold">Discussion Questions</h1>
-      <p className="text-gray-500 dark:text-gray-400">
+      <p className="text-muted">
         Get personalized discussion prompts for your group.
       </p>
 
@@ -107,16 +107,16 @@ export default function QuestionsPage() {
         <button
           onClick={handleGuestStart}
           disabled={starting}
-          className="w-72 px-6 py-4 bg-blue-600 text-white text-lg rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+          className="w-72 px-6 py-4 bg-btn text-btn-text text-lg rounded-md hover:opacity-90 disabled:opacity-50 transition font-medium"
         >
           {starting ? "Setting up…" : "Start New Session"}
         </button>
-        <p className="text-sm text-gray-500 dark:text-gray-400 -mt-2">
+        <p className="text-sm text-muted -mt-2">
           No account needed — jump straight in
         </p>
         <button
           onClick={() => setMode("join")}
-          className="w-72 px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          className="w-72 px-6 py-3 border border-line rounded-md hover:bg-soft transition"
         >
           Join Existing Session
         </button>
@@ -124,7 +124,7 @@ export default function QuestionsPage() {
 
       {error && <p className="text-red-500 text-sm">{error}</p>}
 
-      <a href="/" className="text-sm text-gray-500 hover:underline inline-block pt-2">
+      <a href="/" className="text-sm text-muted hover:underline inline-block pt-2">
         ← Back to home
       </a>
     </div>

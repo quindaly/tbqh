@@ -27,10 +27,10 @@ export default function LoginPage() {
     return (
       <div className="text-center space-y-4 py-16">
         <h1 className="text-2xl font-bold">Check your email!</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-muted">
           We sent a magic link to <strong>{email}</strong>.
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted">
           (In dev mode, check the API server console for the link.)
         </p>
       </div>
@@ -47,13 +47,13 @@ export default function LoginPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
         />
         {error && <p className="text-red-500 text-sm">{error}</p>}
         <button
           type="submit"
           disabled={loading}
-          className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+          className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
         >
           {loading ? "Sending..." : "Send Magic Link"}
         </button>
