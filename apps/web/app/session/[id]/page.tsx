@@ -58,7 +58,7 @@ export default function SessionLobbyPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Session Lobby</h1>
-        <div className="mt-2 flex gap-4 text-sm text-gray-500">
+        <div className="mt-2 flex gap-4 text-sm text-muted">
           <span>
             Status:{" "}
             <span className="font-medium text-green-600">{session?.status}</span>
@@ -73,7 +73,7 @@ export default function SessionLobbyPage() {
       </div>
 
       {/* Participants */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+      <div className="bg-surface rounded-md p-4 border border-soft">
         <h2 className="font-semibold mb-2">
           Participants ({session?.participants?.length || 0})
         </h2>
@@ -83,8 +83,8 @@ export default function SessionLobbyPage() {
               <span
                 className={`px-2 py-0.5 rounded text-xs ${
                   p.role === "host"
-                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                    : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                    ? "bg-selected text-accent"
+                    : "bg-soft text-muted"
                 }`}
               >
                 {p.role}
@@ -101,7 +101,7 @@ export default function SessionLobbyPage() {
           <label className="block font-semibold mb-1">
             Describe your group
           </label>
-          <p className="text-sm text-gray-500 mb-2">
+          <p className="text-sm text-muted mb-2">
             Tell us about your group — who are you, what's the vibe, any topics
             to explore or avoid?
           </p>
@@ -111,14 +111,14 @@ export default function SessionLobbyPage() {
             rows={4}
             required
             placeholder="e.g., We're a group of college friends catching up after 5 years. We like deep conversations, humor, and nostalgia. Keep it PG."
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 resize-none"
+            className="w-full px-4 py-3 border border-line rounded-md bg-surface resize-none"
           />
         </div>
         {error && <p className="text-red-500 text-sm">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+          className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
         >
           {submitting ? "Generating follow-ups..." : "Continue →"}
         </button>

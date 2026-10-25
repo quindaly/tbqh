@@ -89,7 +89,7 @@ export default function FollowupsPage() {
         <button
           onClick={handleCommitProfile}
           disabled={committing}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          className="px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 font-medium"
         >
           {committing ? "Building profile..." : "Skip → Get Questions"}
         </button>
@@ -101,21 +101,21 @@ export default function FollowupsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Follow-up Questions</h1>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted">
           Question {currentIdx + 1} of {prompts.length}
         </p>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-soft rounded-full h-2">
         <div
-          className="bg-blue-600 h-2 rounded-full transition-all"
+          className="bg-accent h-2 rounded-full transition-all"
           style={{ width: `${((currentIdx + 1) / prompts.length) * 100}%` }}
         />
       </div>
 
       {currentPrompt && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 space-y-4">
+        <div className="bg-surface rounded-md p-6 border border-soft space-y-4">
           <h2 className="text-lg font-semibold">{currentPrompt.prompt_text}</h2>
           <div className="space-y-2">
             {currentPrompt.options.map((opt: string) => (
@@ -124,8 +124,8 @@ export default function FollowupsPage() {
                 onClick={() => setSelectedOption(opt)}
                 className={`w-full text-left px-4 py-3 rounded-lg border transition ${
                   selectedOption === opt
-                    ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30"
-                    : "border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    ? "border-accent bg-selected"
+                    : "border-soft hover:bg-soft"
                 }`}
               >
                 {opt}
@@ -140,7 +140,7 @@ export default function FollowupsPage() {
               placeholder="Type your own..."
               value={otherText}
               onChange={(e) => setOtherText(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+              className="w-full px-4 py-3 border border-line rounded-md bg-surface"
             />
           )}
         </div>
@@ -151,7 +151,7 @@ export default function FollowupsPage() {
       <button
         onClick={handleAnswer}
         disabled={answering || !selectedOption}
-        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+        className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
       >
         {answering
           ? "Saving..."

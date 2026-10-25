@@ -29,7 +29,7 @@ export default function BlockedPage() {
       <h1 className="text-2xl font-bold">🚫 Blocked Questions</h1>
 
       {items.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">
+        <p className="text-muted text-center py-8">
           No blocked questions. Questions you dislike will appear here.
         </p>
       ) : (
@@ -37,10 +37,10 @@ export default function BlockedPage() {
           {items.map((item) => (
             <li
               key={item.question_item_id}
-              className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 opacity-60"
+              className="bg-surface rounded-md p-4 border border-soft opacity-60"
             >
               <p className="text-lg line-through">{item.question_text}</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-muted mt-1">
                 Blocked {new Date(item.blocked_at).toLocaleDateString()}
               </p>
             </li>

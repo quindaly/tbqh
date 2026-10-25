@@ -39,7 +39,7 @@ export default function JoinPage() {
           value={sessionId}
           onChange={(e) => setSessionId(e.target.value)}
           required
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
         />
         <input
           type="text"
@@ -47,7 +47,7 @@ export default function JoinPage() {
           value={joinCode}
           onChange={(e) => setJoinCode(e.target.value)}
           required
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
         />
         <input
           type="text"
@@ -55,12 +55,12 @@ export default function JoinPage() {
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           required
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
         />
         <select
           value={joinMode}
           onChange={(e) => setJoinMode(e.target.value as any)}
-          className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface"
         >
           <option value="anonymous">Join Anonymously</option>
           <option value="authenticated">Join with Account</option>
@@ -69,7 +69,7 @@ export default function JoinPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+          className="w-full px-4 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition min-h-[56px] font-medium"
         >
           {loading ? "Joining..." : "Join Session"}
         </button>

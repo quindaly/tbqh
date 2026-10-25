@@ -104,28 +104,28 @@ export default function QuestionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Discussion Questions</h1>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-muted">
           {currentIdx + 1} / {items.length}
         </span>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-soft rounded-full h-2">
         <div
-          className="bg-blue-600 h-2 rounded-full transition-all"
+          className="bg-accent h-2 rounded-full transition-all"
           style={{ width: `${((currentIdx + 1) / items.length) * 100}%` }}
         />
       </div>
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 p-3 rounded-lg text-sm">
+        <div className="bg-red-50 dark:bg-red-900/20 text-red-600 p-3 rounded-md text-sm">
           {error}
         </div>
       )}
 
       {/* Question card */}
       {currentItem && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-200 dark:border-gray-700 min-h-[200px] flex items-center justify-center">
+        <div className="bg-surface rounded-md p-8 border border-soft min-h-[200px] flex items-center justify-center">
           <p className="text-xl text-center leading-relaxed">
             {currentItem.text}
           </p>
@@ -137,21 +137,21 @@ export default function QuestionsPage() {
         <div className="flex gap-3 justify-center">
           <button
             onClick={() => handleFeedback("dislike")}
-            className="px-6 py-3 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-200 dark:hover:bg-red-900/50 transition text-lg"
+            className="px-6 py-3 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-md hover:bg-red-200 dark:hover:bg-red-900/50 transition text-lg"
             title="Dislike — never show this again"
           >
             👎 Pass
           </button>
           <button
             onClick={() => handleFeedback("skip")}
-            className="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition text-lg"
+            className="px-6 py-3 bg-soft text-muted rounded-md hover:bg-soft transition text-lg"
             title="Skip"
           >
             ⏭️ Skip
           </button>
           <button
             onClick={() => handleFeedback("like")}
-            className="px-6 py-3 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-xl hover:bg-green-200 dark:hover:bg-green-900/50 transition text-lg"
+            className="px-6 py-3 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md hover:bg-green-200 dark:hover:bg-green-900/50 transition text-lg"
             title="Like — save to favorites"
           >
             ❤️ Love it
@@ -162,7 +162,7 @@ export default function QuestionsPage() {
       {/* Feedback confirmation */}
       {currentItem && feedbackGiven[currentItem.id] && (
         <div className="text-center space-y-3">
-          <p className="text-gray-500">
+          <p className="text-muted">
             {feedbackGiven[currentItem.id] === "like"
               ? "❤️ Saved to favorites!"
               : feedbackGiven[currentItem.id] === "dislike"
@@ -172,7 +172,7 @@ export default function QuestionsPage() {
           {!isAtEnd && (
             <button
               onClick={() => setCurrentIdx(currentIdx + 1)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              className="px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition font-medium"
             >
               Next Question →
             </button>
@@ -181,11 +181,11 @@ export default function QuestionsPage() {
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex justify-between items-center pt-4 border-t border-soft">
         <button
           onClick={() => setCurrentIdx(Math.max(0, currentIdx - 1))}
           disabled={currentIdx === 0}
-          className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-30"
+          className="text-sm text-muted hover:text-ink disabled:opacity-30"
         >
           ← Previous
         </button>
@@ -194,7 +194,7 @@ export default function QuestionsPage() {
           <button
             onClick={handleGetMore}
             disabled={loadingMore}
-            className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition"
+            className="px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 disabled:opacity-50 transition font-medium"
           >
             {loadingMore ? "Loading..." : "🔄 Get 10 More"}
           </button>
@@ -205,7 +205,7 @@ export default function QuestionsPage() {
             setCurrentIdx(Math.min(items.length - 1, currentIdx + 1))
           }
           disabled={isAtEnd}
-          className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-30"
+          className="text-sm text-muted hover:text-ink disabled:opacity-30"
         >
           Next →
         </button>

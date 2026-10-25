@@ -101,7 +101,7 @@ export default function QuestionsPage() {
   }
 
   if (loading) {
-    return <p className="text-center py-16 text-gray-500">Loading questions…</p>;
+    return <p className="text-center py-16 text-muted">Loading questions…</p>;
   }
 
   if (loadFailed || prompts.length === 0) {
@@ -112,10 +112,10 @@ export default function QuestionsPage() {
     return (
       <div className="text-center py-16 space-y-4">
         <h2 className="text-2xl font-bold">All done!</h2>
-        <p className="text-gray-500 dark:text-gray-400">
+        <p className="text-muted">
           Waiting for other players to finish their answers…
         </p>
-        <div className="animate-pulse text-purple-500 text-lg">⏳</div>
+        <div className="animate-pulse text-accent text-lg">⏳</div>
         {failures > 0 && (
           <div className="max-w-md mx-auto text-left">
             <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />
@@ -133,25 +133,25 @@ export default function QuestionsPage() {
       <h1 className="text-2xl font-bold text-center">About You</h1>
 
       {/* Progress bar */}
-      <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-soft rounded-full overflow-hidden">
         <div
-          className="h-full bg-purple-600 transition-all"
+          className="h-full bg-accent transition-all"
           style={{ width: `${progress}%` }}
         />
       </div>
-      <p className="text-sm text-gray-500 text-center">
+      <p className="text-sm text-muted text-center">
         Question {currentIdx + 1} of {prompts.length}
       </p>
 
       {/* Question card */}
-      <div className="rounded-xl border p-6 space-y-4">
+      <div className="rounded-md border p-6 space-y-4">
         <p className="text-lg font-medium">{prompt?.prompt_text}</p>
         <textarea
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
           placeholder="Type your answer…"
           rows={3}
-          className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 outline-none resize-none"
+          className="w-full px-4 py-3 border rounded-md bg-surface resize-none"
         />
       </div>
 
@@ -160,7 +160,7 @@ export default function QuestionsPage() {
       <button
         onClick={handleSubmit}
         disabled={submitting || !answer.trim()}
-        className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+        className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
       >
         {submitting ? "Submitting…" : currentIdx + 1 < prompts.length ? "Next" : "Finish"}
       </button>

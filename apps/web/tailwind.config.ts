@@ -60,6 +60,8 @@ module.exports = {
         btn: "var(--btn)",
         "btn-text": "var(--btn-text)",
       },
+      // A bare `border` uses the theme's soft line instead of a fixed gray.
+      borderColor: { DEFAULT: "var(--soft)" },
       fontFamily: {
         sans: ['"Instrument Sans Variable"', "system-ui", "-apple-system", "sans-serif"],
         serif: ['"Newsreader Variable"', "Georgia", "serif"],

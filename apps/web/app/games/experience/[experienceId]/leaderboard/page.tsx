@@ -64,7 +64,7 @@ export default function LeaderboardPage() {
   }
 
   if (loading) {
-    return <p className="text-center py-16 text-gray-500">Loading results…</p>;
+    return <p className="text-center py-16 text-muted">Loading results…</p>;
   }
 
   if (loadFailed) {
@@ -82,7 +82,7 @@ export default function LeaderboardPage() {
         <div className="text-center space-y-2">
           <span className="text-5xl">🏆</span>
           <p className="text-2xl font-bold">{winner.display_name}</p>
-          <p className="text-gray-500">
+          <p className="text-muted">
             {winner.score} correct guess{winner.score !== 1 ? "es" : ""}
           </p>
         </div>
@@ -97,11 +97,11 @@ export default function LeaderboardPage() {
               entry.rank === 1
                 ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20"
                 : entry.rank === 2
-                ? "border-gray-400 bg-gray-50 dark:bg-gray-800"
+                ? "border-line bg-surface"
                 : entry.rank === 3
                 ? "border-orange-300 bg-orange-50 dark:bg-orange-900/20"
                 : ""
-            } ${entry.participant_id === participantId ? "ring-2 ring-purple-500" : ""}`}
+            } ${entry.participant_id === participantId ? "ring-2 ring-accent" : ""}`}
           >
             <div className="flex items-center gap-3">
               <span className="text-lg font-bold w-6 text-center">
@@ -121,13 +121,13 @@ export default function LeaderboardPage() {
         <button
           onClick={handleReplay}
           disabled={replaying}
-          className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+          className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
         >
           {replaying ? "Creating…" : "Play Again"}
         </button>
         <button
           onClick={() => router.push("/games")}
-          className="w-full px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          className="w-full px-6 py-3 border border-line rounded-md hover:bg-soft transition"
         >
           Choose Another Game
         </button>
