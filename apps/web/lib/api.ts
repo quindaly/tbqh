@@ -80,7 +80,7 @@ export async function requestMagicLink(email: string) {
 }
 
 export async function getMe() {
-  return apiFetch<{ id: string; email: string }>("/auth/me");
+  return apiFetch<{ id: string; email: string; is_guest?: boolean }>("/auth/me");
 }
 
 export async function logout() {

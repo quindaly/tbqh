@@ -30,7 +30,9 @@ def test_magic_link_request(client: TestClient):
 
 def test_auth_callback_invalid_token(client: TestClient):
     resp = client.get("/api/v1/auth/callback?token=invalid", follow_redirects=False)
-    assert resp.status_code == 400
+    # People arrive from their inbox, so an old link goes to a readable page.
+    assert resp.status_code == 302
+    assert resp.headers["location"].endswith("/login?error=expired")
 
 
 def test_me_unauthenticated(client: TestClient):
