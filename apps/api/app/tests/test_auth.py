@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
-from app.core.security import create_magic_link_token
+from app.core.security import _signer, create_magic_link_token
+from app.db.models.used_magic_link import UsedMagicLink
+from app.services.magic_links import consume_magic_link
 from app.db.models.user import User
 from app.db.session import get_db
 from app.main import app
@@ -93,6 +95,57 @@ class TestRoundTrip:
         resp = client.get("/api/v1/auth/callback?token=nope", follow_redirects=False)
         assert resp.status_code == 302
         assert resp.headers["location"] == f"{settings.WEB_BASE_URL}/login?error=expired"
+
+    def test_a_link_works_only_once(self, client):
+        token = create_magic_link_token("once@example.com")
+        url = f"/api/v1/auth/callback?token={token}"
+        first = client.get(url, follow_redirects=False)
+        assert first.headers["location"].endswith("/dashboard")
+        client.post("/api/v1/auth/logout")
+        second = client.get(url, follow_redirects=False)
+        assert second.status_code == 302
+        assert second.headers["location"] == f"{settings.WEB_BASE_URL}/login?error=expired"
+        assert "set-cookie" not in second.headers
+        assert client.get("/api/v1/auth/me").status_code == 401
+
+    def test_each_requested_link_is_independent(self, client):
+        a = create_magic_link_token("two@example.com")
+        b = create_magic_link_token("two@example.com")
+        assert a != b
+        for t in (a, b):
+            r = client.get(f"/api/v1/auth/callback?token={t}", follow_redirects=False)
+            assert r.headers["location"].endswith("/dashboard")
+
+    def test_a_used_link_is_remembered_in_the_database(self, client, db):
+        before = db.query(UsedMagicLink).count()
+        sign_in(client, "row@example.com")
+        assert db.query(UsedMagicLink).count() == before + 1
+
+    def test_links_from_before_this_change_are_refused(self, client):
+        old = _signer.dumps("legacy@example.com", salt="magic-link")
+        r = client.get(f"/api/v1/auth/callback?token={old}", follow_redirects=False)
+        assert r.headers["location"].endswith("/login?error=expired")
+
+    def test_a_tampered_token_is_refused_without_burning_anything(self, client, db):
+        before = db.query(UsedMagicLink).count()
+        token = create_magic_link_token("t@example.com")
+        r = client.get(f"/api/v1/auth/callback?token={token}x", follow_redirects=False)
+        assert r.headers["location"].endswith("/login?error=expired")
+        assert db.query(UsedMagicLink).count() == before
+
+    def test_consume_is_true_once_then_false(self, db):
+        assert consume_magic_link(db, "abc") is True
+        assert consume_magic_link(db, "abc") is False
+        assert consume_magic_link(db, "def") is True
+
+    def test_old_rows_are_cleaned_up(self, db):
+        from datetime import datetime, timedelta, timezone
+
+        db.add(UsedMagicLink(jti="ancient", used_at=datetime.now(timezone.utc) - timedelta(days=2)))
+        db.flush()
+        consume_magic_link(db, "fresh")
+        remaining = {r.jti for r in db.query(UsedMagicLink).all()}
+        assert "fresh" in remaining and "ancient" not in remaining
 
     def test_requesting_a_link_emails_it(self, client):
         with patch("app.api.v1.routes.auth.send_magic_link", return_value=True) as send:

@@ -46,9 +46,9 @@ describe("Sign in", () => {
     expect(screen.getByLabelText("Email")).toBeTruthy();
   });
 
-  it("explains an expired link", () => {
+  it("explains an expired or already used link", () => {
     search = "error=expired";
     render(<LoginPage />);
-    expect(screen.getByText(/has expired/)).toBeTruthy();
+    expect(screen.getByText(/expired or was already used/)).toBeTruthy();
   });
 });

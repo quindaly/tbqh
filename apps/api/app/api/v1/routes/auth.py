@@ -24,6 +24,7 @@ from app.services.accounts import (
     normalize_email,
 )
 from app.services.email import send_magic_link
+from app.services.magic_links import consume_magic_link
 from app.services.throttle import sign_in_throttle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -82,15 +83,16 @@ def request_magic_link(
 
 @router.get("/callback")
 def auth_callback(token: str, db: Session = Depends(get_db)):
-    """Consume a magic-link token, create or find the user, set the session cookie."""
-    email = verify_magic_link_token(token)
-    if not email:
+    """Consume a magic-link token (once only), create or find the user, set the session cookie."""
+    verified = verify_magic_link_token(token)
+    if not verified or not consume_magic_link(db, verified[1]):
         # People land here from their inbox, so send them somewhere readable
         # instead of showing a bare JSON error.
         return RedirectResponse(
             url=f"{settings.WEB_BASE_URL}/login?error=expired", status_code=302
         )
 
+    email, _ = verified
     user = get_or_create_user(db, email)
 
     redirect = RedirectResponse(url=f"{settings.WEB_BASE_URL}/dashboard", status_code=302)
