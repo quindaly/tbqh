@@ -35,7 +35,7 @@ def finish(db, exp, r1, guessers):
     correct, _ = choice_ids(db, r1)
     for g in guessers:
         hwdyk.submit_mc_guess(db, exp, r1.id, g, correct)
-    hwdyk.advance_round(db, exp, r1.id)
+    hwdyk.advance_round(db, exp, r1.id, hwdyk._effective_host(db, exp).id)
     assert exp.game_state == "completed"
 
 

@@ -1396,6 +1396,7 @@ def start_live_game(
 def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
     """Build full game state payload for HWDYK polling (read-only)."""
     participants = _get_participants(db, experience)
+    round_host = _effective_host(db, experience)
     config = experience.game_config or DEFAULT_GAME_CONFIG
 
     # Get main person display name for question personalization
@@ -1423,7 +1424,11 @@ def get_round_state(db: Session, experience: ExperienceInstance) -> dict:
         ),
         "main_person_display_name": main_person_name,
         "participants": [
-            {"id": str(p.id), "display_name": p.display_name, "role": p.role}
+            {
+                "id": str(p.id),
+                "display_name": p.display_name,
+                "role": "host" if round_host and p.id == round_host.id else "guest",
+            }
             for p in participants
         ],
     }
@@ -1724,8 +1729,19 @@ def reveal_round(
     db: Session,
     experience: ExperienceInstance,
     round_id: uuid.UUID,
+    participant_id: uuid.UUID,
 ) -> dict:
-    """Reveal on request (host's fallback button). Idempotent."""
+    """Reveal on request (fallback button for the host or the person in the hot
+    seat; everyone else just waits for the clock). Idempotent."""
+    host = _effective_host(db, experience)
+    if participant_id not in (
+        host.id if host else None,
+        experience.main_person_participant_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the host or the main person can do that",
+        )
     experience = _lock_experience(db, experience.id)
     game_round = (
         db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()
@@ -1761,9 +1777,12 @@ def advance_round(
     db: Session,
     experience: ExperienceInstance,
     round_id: uuid.UUID,
+    participant_id: uuid.UUID,
 ) -> dict:
-    """Move from a revealed round to the next one (or the final scores). Idempotent:
-    a repeated call for a round that has already been advanced changes nothing."""
+    """Move from a revealed round to the next one (or the final scores). Only the
+    host can do this. Idempotent: a repeated call for a round that has already
+    been advanced changes nothing."""
+    _verify_host(db, participant_id, experience)
     experience = _lock_experience(db, experience.id)
     game_round = (
         db.query(GameRound).filter(GameRound.id == round_id).populate_existing().first()

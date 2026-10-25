@@ -848,17 +848,25 @@ export async function submitMCGuess(
   );
 }
 
-export async function revealHWDYKRound(experienceId: string, roundId: string) {
+export async function revealHWDYKRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-reveal`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 
-export async function advanceHWDYKRound(experienceId: string, roundId: string) {
+export async function advanceHWDYKRound(
+  experienceId: string,
+  roundId: string,
+  participantId: string
+) {
   return apiFetch<{ ok: boolean; is_last: boolean; advanced: boolean }>(
     `/experiences/${experienceId}/rounds/${roundId}/hwdyk-advance`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
   );
 }
 
