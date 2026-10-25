@@ -9,8 +9,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.models.content_item import ContentItem
+from app.db.models.experience import ContentExposure, ExperienceInstance
 from app.db.models.feedback import UserQuestionFeedback
 from app.db.models.participant import Participant
+from app.db.models.session import SessionParticipant
 from app.db.session import get_db
 from app.services.telemetry.events import log_event
 
@@ -40,15 +42,46 @@ def submit_feedback(
     if not participant:
         raise HTTPException(status_code=404, detail="Participant not found")
 
-    fb = UserQuestionFeedback(
-        participant_id=body.participant_id,
-        user_id=participant.user_id,
-        question_item_id=ci.source_question_item_id,
-        content_item_id=content_item_id,
-        experience_instance_id=body.experience_instance_id,
-        feedback=body.feedback,
+    exp = db.get(ExperienceInstance, body.experience_instance_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    # The question has to have been shown in this experience, to someone who is in it.
+    shown = (
+        db.query(ContentExposure.id)
+        .filter(
+            ContentExposure.experience_instance_id == exp.id,
+            ContentExposure.content_item_id == content_item_id,
+        )
+        .first()
     )
-    db.add(fb)
+    in_session = db.get(SessionParticipant, (exp.session_id, body.participant_id))
+    if shown is None or in_session is None:
+        raise HTTPException(status_code=403, detail="That question isn't part of your session.")
+
+    if ci.source_question_item_id is None:
+        raise HTTPException(status_code=400, detail="This question can't be rated.")
+
+    # One rating per person per question: changing your mind replaces it.
+    fb = (
+        db.query(UserQuestionFeedback)
+        .filter(
+            UserQuestionFeedback.participant_id == body.participant_id,
+            UserQuestionFeedback.content_item_id == content_item_id,
+        )
+        .first()
+    )
+    if fb is None:
+        fb = UserQuestionFeedback(
+            participant_id=body.participant_id,
+            user_id=participant.user_id,
+            question_item_id=ci.source_question_item_id,
+            content_item_id=content_item_id,
+            experience_instance_id=body.experience_instance_id,
+            feedback=body.feedback,
+        )
+        db.add(fb)
+    else:
+        fb.feedback = body.feedback
     db.commit()
 
     log_event(

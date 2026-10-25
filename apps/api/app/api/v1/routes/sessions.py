@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models.session import Session as SessionModel, SessionParticipant
@@ -15,6 +14,7 @@ from app.db.models.group import Group
 from app.db.models.policy import PolicyProfile
 from app.db.session import get_db
 from app.api.v1.dependencies import require_auth, get_current_user_id
+from app.services.join_codes import new_join_code, normalize_join_code
 from app.services.telemetry.events import log_event
 
 router = APIRouter(tags=["sessions"])
@@ -32,8 +32,16 @@ class CreateSessionResponse(BaseModel):
 
 class JoinSessionRequest(BaseModel):
     join_code: str
-    display_name: str
+    display_name: str = Field(max_length=40)
     join_mode: str  # anonymous | authenticated
+
+    @field_validator("display_name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Enter a name so the others know who you are.")
+        return v
 
 
 class JoinSessionResponse(BaseModel):
@@ -79,7 +87,7 @@ def create_session(
     if not policy:
         raise HTTPException(status_code=404, detail="Policy profile not found")
 
-    join_code = secrets.token_urlsafe(6).upper()[:8]
+    join_code = new_join_code()
 
     sess = SessionModel(
         group_id=body.group_id,
@@ -155,7 +163,7 @@ def join_session(
     user_id: uuid.UUID | None = Depends(get_current_user_id),
 ):
     sess = db.get(SessionModel, session_id)
-    if not sess or sess.join_code != body.join_code:
+    if not sess or sess.join_code != normalize_join_code(body.join_code):
         raise HTTPException(status_code=400, detail="Invalid join code")
     if sess.status != "active":
         raise HTTPException(status_code=400, detail="Session is not active")

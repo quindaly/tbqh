@@ -195,6 +195,13 @@ def generate_recommendations(
     diversity_cfg = config.get("diversity", {})
     max_per_topic = diversity_cfg.get("max_per_topic", 2)
     top_sim_n = config["top_similarity_n"]
+    explore_n = config["explore_n"]
+    batch_size = config["batch_size"]
+    if top_sim_n + explore_n != batch_size:
+        # Asked for a different batch size: keep the same ~70/30 split rather
+        # than silently returning the default 10.
+        explore_n = round(batch_size * 0.3)
+        top_sim_n = batch_size - explore_n
 
     similarity_set = _apply_diversity(candidates, top_sim_n, max_per_topic)
     similarity_ids = {q.id for q, _ in similarity_set}
@@ -207,15 +214,13 @@ def generate_recommendations(
     explore_set = _build_explore_set(
         candidates,
         similarity_ids,
-        config["explore_n"],
+        explore_n,
         config["explore_policy"],
         similarity_topics,
     )
 
     # --- 8. Combine ---
-    final = similarity_set + explore_set
-    batch_size = config["batch_size"]
-    final = final[:batch_size]
+    final = (similarity_set + explore_set)[:batch_size]
 
     # --- 9. Create content_items and exposures ---
     # Count existing exposures for position numbering
@@ -244,6 +249,7 @@ def generate_recommendations(
                         restricted_categories=", ".join(excluded_cats),
                     ),
                     constrained_rewording_schema(),
+                    temperature=0.5,
                 )
                 if rewording_result.get("should_reword") and rewording_result.get(
                     "reworded_question"

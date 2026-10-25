@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.models.experience import ExperienceInstance
@@ -36,12 +36,15 @@ class ContentItemView(BaseModel):
 
 
 class GenerateRecommendationsRequest(BaseModel):
-    batch_size: int = 10
+    batch_size: int = Field(default=10, ge=1, le=30)
     config_overrides: dict | None = None
 
 
 class GenerateRecommendationsResponse(BaseModel):
     content_items: list[ContentItemView]
+    # True when there was nothing new to show (the group has seen every
+    # question that fits), so the page can say so instead of going blank.
+    exhausted: bool = False
 
 
 @router.post(
@@ -58,7 +61,11 @@ def create_experience(
         raise HTTPException(status_code=404, detail="Session not found")
 
     profile = db.get(GroupProfile, body.group_profile_id)
-    if not profile or not profile.is_active:
+    if (
+        not profile
+        or not profile.is_active
+        or profile.group_id != sess.group_id
+    ):
         raise HTTPException(status_code=400, detail="Invalid or inactive group profile")
 
     exp = ExperienceInstance(
@@ -87,7 +94,7 @@ def get_recommendations(
     if not exp:
         raise HTTPException(status_code=404, detail="Experience not found")
 
-    overrides = body.config_overrides or {}
+    overrides = dict(body.config_overrides or {})
     if body.batch_size != 10:
         overrides["batch_size"] = body.batch_size
 
@@ -103,6 +110,7 @@ def get_recommendations(
     db.commit()
 
     return GenerateRecommendationsResponse(
+        exhausted=len(items) == 0,
         content_items=[
             ContentItemView(
                 id=ci.id,
@@ -129,7 +137,7 @@ def get_more_recommendations(
     if not exp:
         raise HTTPException(status_code=404, detail="Experience not found")
 
-    overrides = body.config_overrides or {}
+    overrides = dict(body.config_overrides or {})
     if body.batch_size != 10:
         overrides["batch_size"] = body.batch_size
 
@@ -145,6 +153,7 @@ def get_more_recommendations(
     db.commit()
 
     return GenerateRecommendationsResponse(
+        exhausted=len(items) == 0,
         content_items=[
             ContentItemView(
                 id=ci.id,
