@@ -129,7 +129,7 @@ def _verify_main_person(
     if experience.main_person_participant_id != participant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the main person can perform this action",
+            detail="Only the person in the hot seat can do that",
         )
 
 
@@ -392,7 +392,7 @@ def select_main_person(
     if experience.game_state != "lobby":
         # Changing the hot seat mid-setup would orphan the answers already given.
         raise _conflict(
-            "setup_in_progress", "The main person can only be changed from the lobby."
+            "setup_in_progress", "The person in the hot seat can only be changed from the lobby."
         )
 
     # Verify main person is a participant in this game
@@ -424,7 +424,7 @@ def start_setup(
     if not experience.main_person_participant_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Main person must be selected before starting",
+            detail="Choose who is in the hot seat before starting",
         )
 
     # Idempotent: if already in main_person_answering, return existing prompts count
@@ -971,7 +971,7 @@ def get_fake_answer_questions(
     if experience.main_person_participant_id == participant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Main person does not submit fake answers",
+            detail="The person in the hot seat does not submit fake answers",
         )
 
     main_person = db.get(Participant, experience.main_person_participant_id)
@@ -1022,7 +1022,7 @@ def submit_fake_answer(
     if experience.main_person_participant_id == participant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Main person cannot submit fake answers",
+            detail="The person in the hot seat cannot submit fake answers",
         )
 
     fake_text = _clean_text(fake_text)
@@ -1637,7 +1637,7 @@ def submit_mc_guess(
     if experience.main_person_participant_id == participant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Main person cannot guess",
+            detail="The person in the hot seat cannot guess",
         )
 
     # Serialise guesses, the timeout and reveals for this game.
@@ -1740,7 +1740,7 @@ def reveal_round(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the host or the main person can do that",
+            detail="Only the host or the person in the hot seat can do that",
         )
     experience = _lock_experience(db, experience.id)
     game_round = (

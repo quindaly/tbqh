@@ -274,7 +274,7 @@ def _main_person_name(db: Session, exp: ExperienceInstance) -> str:
         if exp.main_person_participant_id
         else None
     )
-    return person.display_name if person else "The main person"
+    return person.display_name if person else "The person in the hot seat"
 
 
 def finish_answering(db: Session, exp: ExperienceInstance) -> str | None:

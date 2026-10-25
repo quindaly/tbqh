@@ -246,7 +246,7 @@ export default function HWDYKLobbyPage() {
       {/* Main person indicator */}
       {mainPersonName && (
         <div className="rounded-xl border-2 border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/20 p-4 text-center">
-          <p className="text-sm text-gray-500 mb-1">Main Person</p>
+          <p className="text-xs uppercase tracking-widest text-gray-500 mb-1">In the hot seat</p>
           <p className="text-lg font-bold text-purple-700 dark:text-purple-300">
             {mainPersonName}
           </p>
@@ -272,7 +272,7 @@ export default function HWDYKLobbyPage() {
               )}
               {p.id === lobby.main_person_participant_id && (
                 <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
-                  ⭐ Main
+                  ⭐ Hot seat
                 </span>
               )}
             </li>
@@ -359,7 +359,7 @@ export default function HWDYKLobbyPage() {
                   disabled={actionLoading}
                   className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
                 >
-                  {actionLoading ? "Selecting…" : "Confirm Main Person"}
+                  {actionLoading ? "Selecting…" : "Confirm hot seat"}
                 </button>
               )}
           </div>
