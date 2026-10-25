@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.db.models.experience import ExperienceInstance
+from app.db.models.content_item import ContentItem
+from app.db.models.experience import ContentExposure, ExperienceInstance
+from app.db.models.feedback import UserQuestionFeedback
 from app.db.models.group_profile import GroupProfile
 from app.db.models.session import Session as SessionModel
 from app.db.session import get_db
@@ -33,6 +35,8 @@ class ContentItemView(BaseModel):
     content_type: str
     text: str
     metadata: dict
+    # Only filled in when listing an experience's questions for a participant.
+    feedback: str | None = None
 
 
 class GenerateRecommendationsRequest(BaseModel):
@@ -163,4 +167,55 @@ def get_more_recommendations(
             )
             for ci in items
         ]
+    )
+
+
+@router.get(
+    "/experiences/{experience_id}/items",
+    response_model=GenerateRecommendationsResponse,
+)
+def list_experience_items(
+    experience_id: uuid.UUID,
+    participant_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+):
+    """Every question shown so far in this experience, in order.
+
+    Lets the page pick up where it left off after a reload instead of starting
+    a new batch (which would burn through unseen questions).
+    """
+    exp = db.get(ExperienceInstance, experience_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experience not found")
+
+    rows = (
+        db.query(ContentItem)
+        .join(ContentExposure, ContentExposure.content_item_id == ContentItem.id)
+        .filter(ContentExposure.experience_instance_id == experience_id)
+        .order_by(ContentExposure.position)
+        .all()
+    )
+    ratings: dict[uuid.UUID, str] = {}
+    if participant_id is not None and rows:
+        fbs = (
+            db.query(UserQuestionFeedback)
+            .filter(
+                UserQuestionFeedback.participant_id == participant_id,
+                UserQuestionFeedback.content_item_id.in_([ci.id for ci in rows]),
+            )
+            .all()
+        )
+        ratings = {fb.content_item_id: fb.feedback for fb in fbs}
+
+    return GenerateRecommendationsResponse(
+        content_items=[
+            ContentItemView(
+                id=ci.id,
+                content_type=ci.content_type,
+                text=ci.text,
+                metadata=ci.metadata_ or {},
+                feedback=ratings.get(ci.id),
+            )
+            for ci in rows
+        ],
     )

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { getBlocked } from "@/lib/api";
 import { LoadError } from "../_components/LoadError";
+import { Eyebrow, Heading } from "../_components/ui";
 
 export default function BlockedPage() {
   const [items, setItems] = useState<
@@ -21,16 +22,19 @@ export default function BlockedPage() {
       .finally(() => setLoading(false));
   }, [reloadKey]);
 
-  if (loading) return <p className="text-center py-16">Loading blocked list...</p>;
+  if (loading) return <p className="text-center py-16 text-muted">Loading blocked list…</p>;
   if (error) return <LoadError message={error} onRetry={() => setReloadKey((n) => n + 1)} />;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">🚫 Blocked Questions</h1>
+    <div className="max-w-md mx-auto py-8 space-y-6">
+      <div className="space-y-3">
+        <Eyebrow>Your list</Eyebrow>
+        <Heading>Blocked questions</Heading>
+      </div>
 
       {items.length === 0 ? (
         <p className="text-muted text-center py-8">
-          No blocked questions. Questions you dislike will appear here.
+          Nothing blocked. Questions you mark &ldquo;Not for us&rdquo; show up here.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -39,7 +43,7 @@ export default function BlockedPage() {
               key={item.question_item_id}
               className="bg-surface rounded-md p-4 border border-soft opacity-60"
             >
-              <p className="text-lg line-through">{item.question_text}</p>
+              <p className="font-serif text-lg line-through">{item.question_text}</p>
               <p className="text-xs text-muted mt-1">
                 Blocked {new Date(item.blocked_at).toLocaleDateString()}
               </p>
