@@ -25,6 +25,7 @@ from app.services.games.hwdyk_questions import (
     format_question_self,
     format_question_other,
 )
+from app.services.games.names import clean_display_name, ensure_name_free
 from app.services.games.sharing import generate_join_code, generate_share_url
 from app.services.games.hwdyk_common import (
     DEFAULT_GAME_CONFIG,
@@ -144,6 +145,17 @@ def create_game(
     num_questions: int = 5,
     intimacy_level: str = "personal",
 ) -> dict:
+    display_name = clean_display_name(display_name)
+    if mode not in ("default", "party"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Choose how the wrong answers work.",
+        )
+    if not 1 <= num_questions <= 10:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Choose between 1 and 10 questions.",
+        )
     if user_id is None:
         from app.db.models.user import User
 
@@ -236,6 +248,7 @@ def join_game(
     user_id: uuid.UUID | None = None,
     join_mode: str = "anonymous",
 ) -> dict:
+    display_name = clean_display_name(display_name)
     session = db.query(SessionModel).filter(SessionModel.join_code == join_code).first()
     if not session:
         raise HTTPException(
@@ -282,6 +295,10 @@ def join_game(
                 "game_in_progress",
                 "The next game has already started — you can join the one after.",
             )
+
+    ensure_name_free(
+        display_name, [p.display_name for p in _get_participants(db, experience)]
+    )
 
     participant = Participant(
         group_id=session.group_id,

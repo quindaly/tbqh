@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getGameState,
@@ -9,6 +9,7 @@ import {
   advanceRound,
 } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
+import { Eyebrow, Heading, PrimaryButton } from "../../../../_components/ui";
 import {
   ConnectionBanner,
   LobbyNotFound,
@@ -27,7 +28,11 @@ interface RoundInfo {
   status: string;
   question_text: string;
   answer_text: string;
-  answering_participant_id: string;
+  is_yours: boolean;
+  you_guessed: boolean;
+  guessed_count: number;
+  guesser_count: number;
+  answering_participant_id?: string;
   answering_participant_name?: string;
   guesses?: {
     guessing_participant_id: string;
@@ -48,46 +53,33 @@ export default function PlayPage() {
   const router = useRouter();
 
   const [gameState, setGameState] = useState("");
-  const [currentRound, setCurrentRound] = useState(0);
   const [maxRounds, setMaxRounds] = useState(0);
   const [participants, setParticipants] = useState<ParticipantInfo[]>([]);
   const [round, setRound] = useState<RoundInfo | null>(null);
   const [scores, setScores] = useState<ScoreInfo[]>([]);
-  const [guessSubmitted, setGuessSubmitted] = useState(false);
+  // The round this device has already guessed in, so the buttons stay away
+  // between tapping a name and the server's next reply.
+  const [guessedRoundId, setGuessedRoundId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const [participantId, setParticipantId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setParticipantId(localStorage.getItem(`game_pid_${experienceId}`));
-  }, [experienceId]);
+  // Read straight away (not in an effect) so the first load already knows who
+  // is looking. null if this device never joined.
+  const [participantId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : localStorage.getItem(`game_pid_${experienceId}`)
+  );
 
   // Throws on failure so usePolling can back off and stop on a missing game.
   const fetchState = useCallback(async () => {
-    {
-      const data = await getGameState(experienceId);
-      setGameState(data.game_state);
-      setCurrentRound(data.current_round);
-      setMaxRounds(data.max_rounds);
-      setParticipants(data.participants);
-      setRound(data.round || null);
-      setScores(data.scores || []);
+    const data = await getGameState(experienceId, participantId);
+    setGameState(data.game_state);
+    setMaxRounds(data.max_rounds);
+    setParticipants(data.participants);
+    setRound(data.round || null);
+    setScores(data.scores || []);
 
-      if (data.game_state === "leaderboard" || data.game_state === "completed") {
-        router.push(`/games/experience/${experienceId}/leaderboard`);
-      }
-
-      // Reset guess state on new round
-      if (data.round && data.game_state === "round_active") {
-        const alreadyGuessed = data.round.guesses?.some(
-          (g) => g.guessing_participant_id === participantId
-        );
-        setGuessSubmitted(!!alreadyGuessed);
-      }
-      if (data.game_state === "round_reveal") {
-        setGuessSubmitted(false);
-      }
+    if (data.game_state === "leaderboard" || data.game_state === "completed") {
+      router.push(`/games/experience/${experienceId}/leaderboard`);
     }
   }, [experienceId, participantId, router]);
 
@@ -99,18 +91,25 @@ export default function PlayPage() {
     setError("");
     try {
       await submitGuess(experienceId, round.round_id, participantId, guessedId);
-      setGuessSubmitted(true);
+      setGuessedRoundId(round.round_id);
+      void fetchState().catch(() => {});
     } catch (e: any) {
-      setError(e.message);
+      // Already guessed (another tab, or a retry): treat it as done.
+      if (/already guessed/i.test(e.message)) {
+        setGuessedRoundId(round.round_id);
+      } else {
+        setError(e.message);
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   async function handleReveal() {
-    if (!round) return;
+    if (!round || !participantId) return;
+    setError("");
     try {
-      await revealRound(experienceId, round.round_id);
+      await revealRound(experienceId, round.round_id, participantId);
       void fetchState().catch(() => {});
     } catch (e: any) {
       setError(e.message);
@@ -118,9 +117,10 @@ export default function PlayPage() {
   }
 
   async function handleAdvance() {
-    if (!round) return;
+    if (!round || !participantId) return;
+    setError("");
     try {
-      const res = await advanceRound(experienceId, round.round_id);
+      const res = await advanceRound(experienceId, round.round_id, participantId);
       if (res.is_last) {
         router.push(`/games/experience/${experienceId}/leaderboard`);
       } else {
@@ -131,14 +131,14 @@ export default function PlayPage() {
     }
   }
 
-  const isHost = participants.find((p) => p.role === "host")?.id === participantId;
-  const isAnswerOwner = round?.answering_participant_id === participantId;
+  const isPlayer = !!participantId && participants.some((p) => p.id === participantId);
+  const isHost = isPlayer && participants.find((p) => p.role === "host")?.id === participantId;
 
   if (fatal) {
     return <LobbyNotFound />;
   }
 
-  if (!round && gameState !== "round_reveal") {
+  if (!round) {
     return gaveUp ? (
       <LobbyUnreachable onRetry={retry} />
     ) : (
@@ -146,50 +146,59 @@ export default function PlayPage() {
     );
   }
 
+  const myScore = scores.find((s) => s.participant_id === participantId)?.score;
+
   // ---- Round Active ----
-  if (gameState === "round_active" && round) {
+  if (gameState === "round_active") {
+    const hasGuessed = round.you_guessed || guessedRoundId === round.round_id;
+    const everyoneGuessed = round.guesser_count > 0 && round.guessed_count >= round.guesser_count;
+    const canReveal = isHost || (isPlayer && everyoneGuessed);
+    // You never guess yourself, so you are not an option.
+    const options = participants.filter((p) => p.id !== participantId);
+
     return (
-      <div className="max-w-md mx-auto space-y-6 py-8">
+      <div className="max-w-md mx-auto flex flex-col gap-6 py-8">
         {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Round {round.round_number} / {maxRounds}</h1>
-          {scores.length > 0 && (
-            <span className="text-sm text-muted">
-              Your score: {scores.find((s) => s.participant_id === participantId)?.score ?? 0}
-            </span>
+        <div className="flex items-baseline justify-between">
+          <Eyebrow>
+            Round {round.round_number} of {maxRounds}
+          </Eyebrow>
+          {isPlayer && myScore !== undefined && (
+            <span className="text-sm text-muted tabular-nums">Your score: {myScore}</span>
           )}
         </div>
 
         {/* Question + answer */}
-        <div className="rounded-md border p-6 space-y-3">
-          <p className="text-sm text-muted uppercase tracking-wide">Question</p>
-          <p className="text-lg font-medium">{round.question_text}</p>
-          <div className="border-t pt-3">
-            <p className="text-sm text-muted uppercase tracking-wide">Someone answered</p>
-            <p className="text-lg italic">&ldquo;{round.answer_text}&rdquo;</p>
+        <div className="flex flex-col gap-4">
+          <Heading size={28}>{round.question_text}</Heading>
+          <div className="border-l-2 border-accent pl-4">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted mb-1">Someone answered</p>
+            <p className="font-serif text-[24px] leading-[1.25]">
+              &ldquo;{round.answer_text}&rdquo;
+            </p>
           </div>
         </div>
 
-        {isAnswerOwner ? (
-          <div className="text-center py-4 text-muted">
-            <p className="font-medium">This round is based on your answer!</p>
+        {!isPlayer ? (
+          <p className="text-center text-muted">You&apos;re watching this game.</p>
+        ) : round.is_yours ? (
+          <div className="rounded-md border border-soft bg-surface p-4 text-center text-muted">
+            <p className="text-ink font-medium">This round is based on your answer</p>
             <p className="text-sm">Sit back and watch the others guess.</p>
           </div>
-        ) : guessSubmitted ? (
-          <div className="text-center py-4 text-muted">
-            <p>Guess submitted! Waiting for others…</p>
+        ) : hasGuessed ? (
+          <div className="rounded-md border border-soft bg-surface p-4 text-center text-muted">
+            <p>Guess locked in. Waiting for the others…</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-muted">
-              Who said this?
-            </p>
-            {participants.map((p) => (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted">Who wrote this?</p>
+            {options.map((p) => (
               <button
                 key={p.id}
                 onClick={() => handleGuess(p.id)}
                 disabled={submitting}
-                className="w-full px-4 py-3 rounded-md border hover:border-accent hover:bg-selected transition text-left disabled:opacity-50"
+                className="w-full px-4 min-h-[56px] rounded-md border border-soft bg-surface hover:border-accent hover:bg-selected transition text-left text-[17px] disabled:opacity-50"
               >
                 {p.display_name}
               </button>
@@ -197,65 +206,67 @@ export default function PlayPage() {
           </div>
         )}
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
+        <p className="text-center text-sm text-muted tabular-nums">
+          {round.guessed_count} of {round.guesser_count} guessed
+        </p>
 
-        {isHost && (
-          <button
-            onClick={handleReveal}
-            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition min-h-[56px] font-medium"
-          >
-            Reveal Answer
-          </button>
+        {error && (
+          <p role="alert" className="text-red-500 text-sm">
+            {error}
+          </p>
+        )}
+
+        {canReveal && (
+          <PrimaryButton onClick={handleReveal}>
+            {everyoneGuessed ? "Everyone has guessed. Reveal" : "Reveal answer"}
+          </PrimaryButton>
         )}
       </div>
     );
   }
 
   // ---- Round Reveal ----
-  if (gameState === "round_reveal" && round) {
+  if (gameState === "round_reveal") {
+    const ownerName =
+      round.answering_participant_name ||
+      participants.find((p) => p.id === round.answering_participant_id)?.display_name;
     return (
-      <div className="max-w-md mx-auto space-y-6 py-8">
+      <div className="max-w-md mx-auto flex flex-col gap-6 py-8">
         {failures > 0 && <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />}
-        <h1 className="text-xl font-bold text-center">
-          Round {round.round_number} — Reveal
-        </h1>
+        <Eyebrow>
+          Round {round.round_number} of {maxRounds}
+        </Eyebrow>
 
-        <div className="rounded-md border p-6 space-y-3">
-          <p className="text-lg font-medium">{round.question_text}</p>
-          <p className="italic">&ldquo;{round.answer_text}&rdquo;</p>
-          <div className="border-t pt-3">
-            <p className="text-sm text-muted">Answer by:</p>
-            <p className="text-lg font-bold text-accent">
-              {round.answering_participant_name ||
-                participants.find((p) => p.id === round.answering_participant_id)
-                  ?.display_name}
-            </p>
+        <div className="flex flex-col gap-3">
+          <Heading size={28}>{round.question_text}</Heading>
+          <p className="font-serif text-[24px] leading-[1.25]">&ldquo;{round.answer_text}&rdquo;</p>
+          <div className="border-t border-soft pt-3">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted">Written by</p>
+            <p className="font-serif text-[28px] leading-tight text-accent">{ownerName}</p>
           </div>
         </div>
 
         {/* Vote distribution */}
         {round.guesses && round.guesses.length > 0 && (
-          <div className="space-y-2">
-            <h2 className="font-semibold">Who guessed what</h2>
+          <div className="flex flex-col gap-2">
+            <h2 className="text-xs uppercase tracking-[0.14em] text-muted font-normal">
+              Who guessed what
+            </h2>
             {round.guesses.map((g) => {
-              const guesser = participants.find(
-                (p) => p.id === g.guessing_participant_id
-              );
-              const guessed = participants.find(
-                (p) => p.id === g.guessed_participant_id
-              );
+              const guesser = participants.find((p) => p.id === g.guessing_participant_id);
+              const guessed = participants.find((p) => p.id === g.guessed_participant_id);
               return (
                 <div
                   key={g.guessing_participant_id}
-                  className={`flex justify-between items-center px-3 py-2 rounded-lg border ${
+                  className={`flex justify-between items-center px-3 min-h-[48px] rounded-md border ${
                     g.is_correct
                       ? "border-green-300 bg-green-50 dark:bg-green-900/20"
-                      : "border-red-200 bg-red-50 dark:bg-red-900/20"
+                      : "border-soft bg-surface"
                   }`}
                 >
                   <span>{guesser?.display_name}</span>
                   <span className="text-sm text-muted">
-                    → {guessed?.display_name} {g.is_correct ? "✓" : "✗"}
+                    {guessed?.display_name} {g.is_correct ? "✓" : "✗"}
                   </span>
                 </div>
               );
@@ -265,32 +276,36 @@ export default function PlayPage() {
 
         {/* Scores */}
         {scores.length > 0 && (
-          <div className="space-y-1">
-            <h2 className="font-semibold">Scores</h2>
-            {scores.map((s) => (
-              <div key={s.participant_id} className="flex justify-between px-3 py-1">
-                <span>{s.display_name}</span>
-                <span className="font-mono">{s.score}</span>
-              </div>
-            ))}
+          <div className="flex flex-col">
+            <h2 className="text-xs uppercase tracking-[0.14em] text-muted font-normal mb-2">
+              Scores
+            </h2>
+            <ul className="border-t border-soft">
+              {scores.map((s) => (
+                <li
+                  key={s.participant_id}
+                  className="flex justify-between items-center border-b border-soft min-h-[44px]"
+                >
+                  <span>{s.display_name}</span>
+                  <span className="tabular-nums">{s.score}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-
-        {isHost && (
-          <button
-            onClick={handleAdvance}
-            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition min-h-[56px] font-medium"
-          >
-            {round.round_number >= maxRounds ? "Show Leaderboard" : "Next Round"}
-          </button>
+        {error && (
+          <p role="alert" className="text-red-500 text-sm">
+            {error}
+          </p>
         )}
 
-        {!isHost && (
-          <p className="text-center text-muted text-sm">
-            Waiting for host to continue…
-          </p>
+        {isHost ? (
+          <PrimaryButton onClick={handleAdvance}>
+            {round.round_number >= maxRounds ? "Show final scores" : "Next round"}
+          </PrimaryButton>
+        ) : (
+          <p className="text-center text-muted text-sm">Waiting for the host to continue…</p>
         )}
       </div>
     );
