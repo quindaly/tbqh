@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getBlocked } from "@/lib/api";
+import { LoadError } from "../_components/LoadError";
 
 export default function BlockedPage() {
   const [items, setItems] = useState<
@@ -9,20 +10,23 @@ export default function BlockedPage() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setError("");
     getBlocked()
       .then((data) => setItems(data.question_items))
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(err.message || "Couldn't load this list."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadKey]);
 
   if (loading) return <p className="text-center py-16">Loading blocked list...</p>;
+  if (error) return <LoadError message={error} onRetry={() => setReloadKey((n) => n + 1)} />;
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">🚫 Blocked Questions</h1>
-      {error && <p className="text-red-500">{error}</p>}
 
       {items.length === 0 ? (
         <p className="text-gray-500 text-center py-8">

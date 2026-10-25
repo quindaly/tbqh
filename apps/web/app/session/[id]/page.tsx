@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getSession, submitGroupText } from "@/lib/api";
+import { LoadError } from "../../_components/LoadError";
+
 
 export default function SessionLobbyPage() {
   const params = useParams();
@@ -14,13 +16,17 @@ export default function SessionLobbyPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError("");
     getSession(sessionId)
       .then(setSession)
-      .catch((err) => setError(err.message))
+      .catch((err) => setLoadError(err.message || "Couldn't load the session."))
       .finally(() => setLoading(false));
-  }, [sessionId]);
+  }, [sessionId, reloadKey]);
 
   const handleSubmitGroupText = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +50,9 @@ export default function SessionLobbyPage() {
   };
 
   if (loading) return <p className="text-center py-16">Loading session...</p>;
+  if (loadError || !session) {
+    return <LoadError message={loadError} onRetry={() => setReloadKey((n) => n + 1)} />;
+  }
 
   return (
     <div className="space-y-6">

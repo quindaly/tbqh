@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getFollowups, answerFollowup, commitGroupProfile } from "@/lib/api";
+import { LoadError } from "../../../_components/LoadError";
 
 export default function FollowupsPage() {
   const params = useParams();
@@ -17,13 +18,17 @@ export default function FollowupsPage() {
   const [answering, setAnswering] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError("");
     getFollowups(sessionId)
       .then((data) => setPrompts(data.prompts))
-      .catch((err) => setError(err.message))
+      .catch((err) => setLoadError(err.message || "Couldn't load the follow-ups."))
       .finally(() => setLoading(false));
-  }, [sessionId]);
+  }, [sessionId, reloadKey]);
 
   const currentPrompt = prompts[currentIdx];
 
@@ -74,6 +79,9 @@ export default function FollowupsPage() {
   };
 
   if (loading) return <p className="text-center py-16">Loading follow-ups...</p>;
+  if (loadError) {
+    return <LoadError message={loadError} onRetry={() => setReloadKey((n) => n + 1)} />;
+  }
   if (!prompts.length) {
     return (
       <div className="text-center py-16 space-y-4">
