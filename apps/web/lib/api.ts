@@ -617,7 +617,7 @@ export async function getHWDYKLobby(experienceId: string) {
     /** True for a "play again" lobby, which only holds the people who came back. */
     is_replay: boolean;
     previous_main_person_id: string | null;
-    participants: { id: string; display_name: string; role: string }[];
+    participants: { id: string; display_name: string; role: string; away?: boolean }[];
     /** Replay lobbies: people from the session who haven't come back yet. */
     absent_participants: { id: string; display_name: string }[];
   }>(`/experiences/${experienceId}/hwdyk/lobby`);
@@ -956,4 +956,62 @@ export async function returnToHWDYKLobby(
     method: "POST",
     body: JSON.stringify({ participant_id: participantId }),
   });
+}
+
+
+/** "Still here": sent every few seconds while a game page is open. */
+export async function checkIn(experienceId: string, participantId: string) {
+  return apiFetch<{
+    member: boolean;
+    removed: boolean;
+    left_out: boolean;
+    host_id: string | null;
+  }>(`/experiences/${experienceId}/presence`, {
+    method: "POST",
+    body: JSON.stringify({ participant_id: participantId }),
+  });
+}
+
+/** The Hot Seat host clears out someone who has left. Returns the new lobby. */
+export async function removePlayer(
+  experienceId: string,
+  hostParticipantId: string,
+  participantId: string
+) {
+  return apiFetch<Record<string, unknown>>(`/experiences/${experienceId}/remove-player`, {
+    method: "POST",
+    body: JSON.stringify({
+      host_participant_id: hostParticipantId,
+      participant_id: participantId,
+    }),
+  });
+}
+
+export interface AnswerProgress {
+  game_state: string;
+  total_questions: number;
+  players: {
+    id: string;
+    display_name: string;
+    answered: number;
+    finished: boolean;
+    away: boolean;
+  }[];
+  finished_count: number;
+  min_players: number;
+  can_start_now: boolean;
+}
+
+/** Who Knows Who: who has finished answering, and whether the host may start now. */
+export async function getAnswerProgress(experienceId: string, participantId?: string | null) {
+  const q = participantId ? `?participant_id=${encodeURIComponent(participantId)}` : "";
+  return apiFetch<AnswerProgress>(`/experiences/${experienceId}/answer-progress${q}`);
+}
+
+/** Who Knows Who: start with only the players who have finished. */
+export async function startWithFinished(experienceId: string, participantId: string) {
+  return apiFetch<{ ok: boolean; players: number; left_out: number }>(
+    `/experiences/${experienceId}/start-with-finished`,
+    { method: "POST", body: JSON.stringify({ participant_id: participantId }) }
+  );
 }

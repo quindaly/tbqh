@@ -22,7 +22,12 @@ from app.db.models.session import Session as SessionModel, SessionParticipant
 from app.services.games.hwdyk_common import lock_experience as _lock_experience
 from app.services.games.names import clean_display_name, ensure_name_free
 from app.services.games.question_bank import select_questions
-from app.services.games.roster import host_of, roster as _roster, session_participants
+from app.services.games.roster import (
+    host_of,
+    is_away,
+    roster as _roster,
+    session_participants,
+)
 from app.services.games.sharing import generate_join_code, generate_share_url
 from app.services.games.state import transition_state
 from app.services.telemetry.events import log_event
@@ -272,7 +277,8 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
             {
                 "id": str(p.id),
                 "display_name": p.display_name,
-                "role": "host" if host and p.id == host.id else p.role,
+                "role": "host" if host and p.id == host.id else "guest",
+                "away": is_away(p),
             }
             for p in participants
         ],
@@ -329,6 +335,122 @@ def start_answer_collection(
     db.commit()
 
     return {"prompts_created": len(created_prompts)}
+
+
+def _answer_counts(
+    db: Session, experience: ExperienceInstance
+) -> tuple[int, dict[uuid.UUID, int]]:
+    """(number of questions, answers given so far per player)."""
+    prompt_ids = [
+        row[0]
+        for row in db.query(PromptInstance.id)
+        .filter(
+            PromptInstance.experience_instance_id == experience.id,
+            PromptInstance.prompt_type == "who_knows_who_self_answer",
+        )
+        .all()
+    ]
+    counts: dict[uuid.UUID, int] = defaultdict(int)
+    if prompt_ids:
+        rows = (
+            db.query(PromptResponse.participant_id)
+            .filter(PromptResponse.prompt_instance_id.in_(prompt_ids))
+            .all()
+        )
+        for (pid,) in rows:
+            counts[pid] += 1
+    return len(prompt_ids), counts
+
+
+def answer_progress(
+    db: Session, experience: ExperienceInstance, viewer_id: uuid.UUID | None
+) -> dict:
+    """Who has finished their questions, for the waiting screen. The host is told
+    whether they can start now without the people still answering."""
+    total, counts = _answer_counts(db, experience)
+    players = _roster(db, experience)
+    is_replay = experience.present_participant_ids is not None
+    host = host_of(players, is_replay)
+
+    rows = [
+        {
+            "id": str(p.id),
+            "display_name": p.display_name,
+            "answered": counts.get(p.id, 0),
+            "finished": total > 0 and counts.get(p.id, 0) >= total,
+            "away": is_away(p),
+        }
+        for p in players
+    ]
+    finished = sum(1 for r in rows if r["finished"])
+    viewer_row = next((r for r in rows if r["id"] == str(viewer_id)), None)
+    can_start_now = bool(
+        experience.game_state == "question_collection"
+        and host is not None
+        and viewer_id == host.id
+        and viewer_row is not None
+        and viewer_row["finished"]
+        and finished >= MIN_PLAYERS
+        and finished < len(rows)
+    )
+    return {
+        "game_state": experience.game_state,
+        "total_questions": total,
+        "players": rows,
+        "finished_count": finished,
+        "min_players": MIN_PLAYERS,
+        "can_start_now": can_start_now,
+    }
+
+
+def start_with_finished(
+    db: Session, experience: ExperienceInstance, participant_id: uuid.UUID
+) -> dict:
+    """The host starts the guessing now, with only the players who have answered
+    every question. The others are left out of this game (not out of the room:
+    they can still join the replay)."""
+    experience = _lock_experience(db, experience.id)
+    _require_member(db, experience, participant_id)
+    if not _is_host(db, experience, participant_id):
+        raise _forbidden("Only the host can start the game")
+    if experience.game_state != "question_collection":
+        raise _conflict("Answers are no longer being collected for this game.")
+
+    total, counts = _answer_counts(db, experience)
+    players = _roster(db, experience)
+    done = [p for p in players if total > 0 and counts.get(p.id, 0) >= total]
+    waiting = [p for p in players if p not in done]
+
+    if participant_id not in {p.id for p in done}:
+        raise _conflict("Finish your own answers first.")
+    if not waiting:
+        raise _conflict("Everyone has already finished.")
+    if len(done) < MIN_PLAYERS:
+        raise _conflict(
+            f"Need at least {MIN_PLAYERS} players who have finished to start."
+        )
+
+    experience.excluded_participant_ids = list(
+        dict.fromkeys(
+            (experience.excluded_participant_ids or []) + [str(p.id) for p in waiting]
+        )
+    )
+    db.flush()
+    log_event(
+        db,
+        "game_started_without_stragglers",
+        session_id=experience.session_id,
+        experience_instance_id=experience.id,
+        participant_id=participant_id,
+        payload={
+            "left_out": [str(p.id) for p in waiting],
+            "playing": [str(p.id) for p in done],
+        },
+    )
+    transition_state(db, experience, "ready_to_start")
+    _generate_rounds(db, experience)
+    db.commit()
+    return {"ok": True, "players": len(done), "left_out": len(waiting)}
 
 
 def get_prompts_for_experience(

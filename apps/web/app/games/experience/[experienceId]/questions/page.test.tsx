@@ -9,6 +9,8 @@ vi.mock("next/navigation", () => ({
 }));
 const getGamePrompts = vi.fn();
 const submitGameAnswer = vi.fn();
+const getAnswerProgress = vi.fn();
+const startWithFinished = vi.fn();
 vi.mock("@/lib/api", () => {
   class ApiError extends Error {
     status: number;
@@ -21,6 +23,8 @@ vi.mock("@/lib/api", () => {
     ApiError,
     getGamePrompts: (...a: unknown[]) => getGamePrompts(...a),
     submitGameAnswer: (...a: unknown[]) => submitGameAnswer(...a),
+    getAnswerProgress: (...a: unknown[]) => getAnswerProgress(...a),
+    startWithFinished: (...a: unknown[]) => startWithFinished(...a),
     getGameState: vi.fn().mockResolvedValue({ game_state: "question_collection" }),
   };
 });
@@ -35,6 +39,9 @@ beforeEach(() => {
   push.mockClear();
   getGamePrompts.mockReset();
   submitGameAnswer.mockReset();
+  getAnswerProgress.mockReset();
+  getAnswerProgress.mockResolvedValue({ players: [], total_questions: 2, can_start_now: false, finished_count: 0, min_players: 3, game_state: "question_collection" });
+  startWithFinished.mockReset();
 });
 afterEach(cleanup);
 
@@ -71,5 +78,47 @@ describe("Who Knows Who questions", () => {
     fireEvent.change(await screen.findByLabelText("Your answer"), { target: { value: "pizza" } });
     fireEvent.click(screen.getByText("Finish"));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/games/experience/e1/play"));
+  });
+
+  describe("waiting for the others", () => {
+    const progress = (canStart: boolean) => ({
+      game_state: "question_collection",
+      total_questions: 10,
+      finished_count: 3,
+      min_players: 3,
+      can_start_now: canStart,
+      players: [
+        { id: "q", display_name: "Quin", answered: 10, finished: true, away: false },
+        { id: "b", display_name: "Bea", answered: 10, finished: true, away: false },
+        { id: "c", display_name: "Cal", answered: 10, finished: true, away: false },
+        { id: "d", display_name: "Dee", answered: 4, finished: false, away: true },
+      ],
+    });
+
+    it("shows who has finished", async () => {
+      getGamePrompts.mockResolvedValue({ prompts: prompts([true, true]) });
+      getAnswerProgress.mockResolvedValue(progress(false));
+      render(<QuestionsPage />);
+      await screen.findByText("4 of 10 · away");
+      expect(screen.getAllByText("Done")).toHaveLength(3);
+      expect(screen.queryByText(/Start with the/)).toBeNull();
+    });
+
+    it("lets the host start with whoever has finished", async () => {
+      getGamePrompts.mockResolvedValue({ prompts: prompts([true, true]) });
+      getAnswerProgress.mockResolvedValue(progress(true));
+      startWithFinished.mockResolvedValue({ ok: true, players: 3, left_out: 1 });
+      render(<QuestionsPage />);
+      fireEvent.click(await screen.findByText("Start with the 3 who have finished"));
+      await waitFor(() => expect(startWithFinished).toHaveBeenCalledWith("e1", "q"));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/games/experience/e1/play"));
+    });
+
+    it("names who would be left out", async () => {
+      getGamePrompts.mockResolvedValue({ prompts: prompts([true, true]) });
+      getAnswerProgress.mockResolvedValue(progress(true));
+      render(<QuestionsPage />);
+      await screen.findByText(/Dee won't be in this game/);
+    });
   });
 });

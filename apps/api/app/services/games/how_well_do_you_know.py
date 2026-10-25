@@ -27,6 +27,7 @@ from app.services.games.hwdyk_questions import (
     format_question_other,
 )
 from app.services.games.names import clean_display_name, ensure_name_free
+from app.services.games.roster import host_of, is_away
 from app.services.games.sharing import generate_join_code, generate_share_url
 from app.services.games.hwdyk_common import (
     DEFAULT_GAME_CONFIG,
@@ -93,13 +94,12 @@ def _get_participants(db: Session, experience: ExperienceInstance) -> list[Parti
 def _effective_host(
     db: Session, experience: ExperienceInstance
 ) -> Participant | None:
-    """The host of this game: the session's host while they are in it, otherwise
-    the longest-standing player who is, so a replay never ends up host-less."""
-    participants = _get_participants(db, experience)
-    host = next((p for p in participants if p.role == "host"), None)
-    if host or experience.present_participant_ids is None:
-        return host
-    return participants[0] if participants else None
+    """The host of this game: the session's host while they are here, otherwise
+    (after a minute of silence, or in a replay without them) the
+    longest-standing player who is."""
+    return host_of(
+        _get_participants(db, experience), experience.present_participant_ids is not None
+    )
 
 
 def _verify_host(
@@ -392,6 +392,7 @@ def get_lobby_payload(db: Session, experience: ExperienceInstance) -> dict:
                 "id": str(p.id),
                 "display_name": p.display_name,
                 "role": "host" if host and p.id == host.id else "guest",
+                "away": is_away(p),
             }
             for p in participants
         ],
@@ -428,6 +429,73 @@ def select_main_person(
 
 
 # ---------- start setup ----------
+
+
+def remove_player(
+    db: Session,
+    experience: ExperienceInstance,
+    host_participant_id: uuid.UUID,
+    target_participant_id: uuid.UUID,
+) -> None:
+    """The host removes someone who has left, so the room is not waiting on them.
+
+    Only from the lobby, and only for people whose browser has gone quiet: this
+    is cleaning up after a closed tab, not a way to kick someone who is here.
+    They keep their account and past scores; if they come back they join again
+    with the code."""
+    _verify_host(db, host_participant_id, experience)
+    experience = _lock_experience(db, experience.id)
+    if experience.game_state != "lobby":
+        raise _conflict(
+            "setup_in_progress", "Players can only be removed from the lobby."
+        )
+
+    players = _get_participants(db, experience)
+    target = next((p for p in players if p.id == target_participant_id), None)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="That person is not in this game.",
+        )
+    if target.id == host_participant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You can't remove yourself.",
+        )
+    if not is_away(target):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{target.display_name} is still here.",
+        )
+
+    db.query(SessionParticipant).filter(
+        SessionParticipant.session_id == experience.session_id,
+        SessionParticipant.participant_id == target.id,
+    ).delete(synchronize_session=False)
+    if target.role == "host":
+        # A stand-in host cleared out the original, who is not coming back to
+        # this game: the role is theirs now, so the room is never host-less.
+        target.role = "guest"
+        stand_in = db.get(Participant, host_participant_id)
+        if stand_in is not None:
+            stand_in.role = "host"
+    if experience.present_participant_ids is not None:
+        experience.present_participant_ids = [
+            pid
+            for pid in experience.present_participant_ids
+            if pid != str(target.id)
+        ]
+    if experience.main_person_participant_id == target.id:
+        experience.main_person_participant_id = None
+    log_event(
+        db,
+        "player_removed",
+        session_id=experience.session_id,
+        experience_instance_id=experience.id,
+        participant_id=host_participant_id,
+        payload={"removed_participant_id": str(target.id)},
+    )
+    db.commit()
 
 
 def start_setup(

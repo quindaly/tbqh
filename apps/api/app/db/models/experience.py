@@ -70,6 +70,12 @@ class ExperienceInstance(Base, UUIDPKMixin, TimestampMixin):
     present_participant_ids: Mapped[list | None] = mapped_column(
         JSONB, nullable=True
     )
+    # Who Knows Who: players the host started without because they had not
+    # finished their answers (ids as strings). They stay in the session, so
+    # they can still join the replay.
+    excluded_participant_ids: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint(
