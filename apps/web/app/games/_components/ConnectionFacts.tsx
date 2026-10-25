@@ -43,9 +43,9 @@ function ConnectionFactsBase({
   return (
     <aside
       aria-label="Did you know?"
-      className="rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 px-4 py-3 text-left"
+      className="rounded-md border border-soft bg-surface px-4 py-3 text-left"
     >
-      <p className="text-xs font-medium uppercase tracking-wide text-purple-700 dark:text-purple-300">
+      <p className="text-xs uppercase tracking-[0.14em] text-muted">
         Did you know?
       </p>
       <div className="grid mt-1">
@@ -62,10 +62,10 @@ function ConnectionFactsBase({
                 active ? "connection-fact-fade" : "invisible"
               }`}
             >
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              <p className="font-serif text-base leading-snug text-ink">
                 {fact.title}
               </p>
-              <p className="text-sm text-gray-700 dark:text-gray-300">{fact.body}</p>
+              <p className="mt-0.5 text-sm text-muted">{fact.body}</p>
             </div>
           );
         })}

@@ -82,72 +82,75 @@ export default function HWDYKLeaderboardPage() {
   }
 
   if (fatal) {
-    return <div className="py-12 text-center text-gray-500">We couldn't find that game.</div>;
+    return <div className="py-12 text-center text-muted">We couldn't find that game.</div>;
   }
 
   if (loading) {
-    return <div className="py-12 text-center text-gray-500">Loading…</div>;
+    return <div className="py-12 text-center text-muted">Loading…</div>;
   }
 
   const iAmBack = next.returned.includes(participantId);
 
-  const getMedal = (rank: number) => {
-    if (rank === 1) return "🥇";
-    if (rank === 2) return "🥈";
-    if (rank === 3) return "🥉";
-    return `${rank}.`;
-  };
+  const topScore = scores[0]?.score;
+  const winners = scores.filter((e) => e.score === topScore);
+  const headline =
+    scores.length === 0
+      ? "Game over"
+      : winners.length === 1
+      ? `${winners[0].display_name} wins.`
+      : "It's a tie.";
 
   return (
     <div className="max-w-lg mx-auto py-12 space-y-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold">Game Over!</h1>
+      <div className="space-y-1.5">
+        <p className="text-xs uppercase tracking-[0.14em] text-muted">Final scores</p>
+        <h1 className="font-serif text-[44px] leading-[1.05] tracking-[-0.01em] font-normal">
+          {headline}
+        </h1>
       </div>
 
       {/* Leaderboard */}
-      <div className="space-y-3">
+      <ol className="border-t border-line">
         {scores.map((entry) => (
-          <div
+          <li
             key={entry.participant_id}
-            className={`flex items-center justify-between px-5 py-4 rounded-xl border-2 transition ${
-              entry.participant_id === participantId
-                ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20 dark:border-purple-700"
-                : "border-gray-200 dark:border-gray-700"
-            }`}
+            className="flex items-baseline gap-4 border-b border-soft py-4"
           >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">{getMedal(entry.rank)}</span>
-              <div>
-                <span className="font-medium">{entry.display_name}</span>
-                {entry.participant_id === participantId && (
-                  <span className="ml-2 text-xs text-purple-500">(you)</span>
-                )}
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {entry.correct_count} correct
-                  {(entry.fool_count ?? 0) > 0 && (
-                    <> · fooled {entry.fool_count}</>
-                  )}
-                </div>
+            <span
+              className={`w-7 font-serif text-[26px] ${
+                entry.rank === 1 ? "text-accent" : "text-muted"
+              }`}
+            >
+              {entry.rank}
+            </span>
+            <div className="flex-1">
+              <span className="font-serif text-[26px] leading-tight">
+                {entry.display_name}
+              </span>
+              {entry.participant_id === participantId && (
+                <span className="ml-2 text-xs text-accent">you</span>
+              )}
+              <div className="text-xs text-muted mt-0.5">
+                {entry.correct_count} correct
+                {(entry.fool_count ?? 0) > 0 && <> · fooled {entry.fool_count}</>}
               </div>
             </div>
-            <span className="text-lg font-bold text-purple-600">
-              {entry.score}
-            </span>
-          </div>
+            <span className="text-xl tabular-nums">{entry.score}</span>
+          </li>
         ))}
-      </div>
+      </ol>
 
       {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
       {/* Actions */}
       <div className="space-y-3">
         {next.id && next.state === "lobby" && (
-          <p className="text-center text-sm text-gray-500" role="status">
+          <p className="text-center text-sm text-muted" role="status">
             {next.returned.length} of {next.total} back in the lobby
           </p>
         )}
         {missedIt && (
-          <p className="text-center text-sm text-gray-500" role="status">
+          <p className="text-center text-sm text-muted" role="status">
             The next game has already started. You can join the one after it.
           </p>
         )}
@@ -155,20 +158,20 @@ export default function HWDYKLeaderboardPage() {
           <button
             onClick={handleReturn}
             disabled={returning || missedIt}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+            className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
           >
-            {returning ? "Going back…" : iAmBack ? "Go to the lobby" : "Return to Lobby"}
+            {returning ? "Going back…" : iAmBack ? "Go to the lobby" : "Return to lobby"}
           </button>
         ) : (
-          <p className="text-center text-sm text-gray-500">
+          <p className="text-center text-sm text-muted">
             Open the game from the link you used to join to play again.
           </p>
         )}
         <a
           href="/games"
-          className="block w-full text-center px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+          className="flex items-center justify-center w-full min-h-[56px] px-6 border border-line rounded-md hover:bg-surface transition"
         >
-          Back to Games
+          Choose another game
         </a>
       </div>
     </div>

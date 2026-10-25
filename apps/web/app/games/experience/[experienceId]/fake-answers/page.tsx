@@ -101,10 +101,10 @@ export default function FakeAnswersPage() {
   if (loadError && questions.length === 0) {
     return (
       <div className="py-12 text-center space-y-4">
-        <p className="text-gray-500">{loadError}</p>
+        <p className="text-muted">{loadError}</p>
         <button
           onClick={() => setReloadKey((k) => k + 1)}
-          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+          className="min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
         >
           Try again
         </button>
@@ -113,15 +113,15 @@ export default function FakeAnswersPage() {
   }
 
   if (questions.length === 0) {
-    return <div className="py-12 text-center text-gray-500">Loading…</div>;
+    return <div className="py-12 text-center text-muted">Loading…</div>;
   }
 
   if (allDone) {
     return (
       <div className="py-12 text-center space-y-4">
-        <h2 className="text-2xl font-bold">All fake answers submitted! 🎭</h2>
-        <p className="text-gray-500">Waiting for the host to start the game…</p>
-        <div className="animate-pulse text-purple-500">●●●</div>
+        <h2 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">All fake answers submitted</h2>
+        <p className="text-muted">Waiting for the host to start the game…</p>
+        <div aria-hidden="true" className="mx-auto h-2 w-2 rounded-full bg-accent animate-pulse" />
         {failures > 0 && (
           <div className="max-w-md mx-auto text-left">
             <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />
@@ -137,20 +137,20 @@ export default function FakeAnswersPage() {
   return (
     <div className="max-w-lg mx-auto py-12 space-y-6">
       {/* Progress */}
-      <div className="flex items-center justify-between text-sm text-gray-500">
+      <div className="flex items-center justify-between text-sm text-muted">
         <span>Question {currentIdx + 1} of {questions.length}</span>
       </div>
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-soft rounded-md h-2">
         <div
-          className="bg-purple-600 h-2 rounded-full transition-all"
+          className="bg-accent h-2 rounded-md transition-all"
           style={{ width: `${((currentIdx + 1) / questions.length) * 100}%` }}
         />
       </div>
 
       {/* Question */}
       <div className="space-y-2">
-        <h2 className="text-xl font-semibold">{q.question_text}</h2>
-        <p className="text-sm text-gray-500">
+        <h2 className="font-serif text-[32px] leading-[1.15] tracking-[-0.01em] font-normal">{q.question_text}</h2>
+        <p className="text-sm text-muted">
           Write a believable but <span className="font-medium">wrong</span> answer to fool other players!
         </p>
       </div>
@@ -163,9 +163,9 @@ export default function FakeAnswersPage() {
           placeholder="Your fake answer…"
           rows={2}
           maxLength={80}
-          className="w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 outline-none resize-none"
+          className="w-full px-4 py-3 border border-line rounded-md bg-surface text-ink resize-none"
         />
-        <span className="absolute bottom-2 right-3 text-xs text-gray-400">
+        <span className="absolute bottom-2 right-3 text-xs text-muted">
           {fakeText.length}/80
         </span>
       </div>
@@ -175,7 +175,7 @@ export default function FakeAnswersPage() {
       <button
         onClick={handleSubmit}
         disabled={loading || !fakeText.trim()}
-        className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+        className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50"
       >
         {loading ? "Submitting…" : "Submit Fake Answer"}
       </button>

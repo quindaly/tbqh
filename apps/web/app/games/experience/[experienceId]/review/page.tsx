@@ -53,11 +53,11 @@ function statusLabel(s: ChoiceState | undefined): { text: string; tone: string }
   if (!s) return null;
   switch (s.status) {
     case "dirty":
-      return { text: "Unsaved…", tone: "text-gray-400" };
+      return { text: "Unsaved…", tone: "text-muted" };
     case "saving":
-      return { text: "Saving…", tone: "text-gray-400" };
+      return { text: "Saving…", tone: "text-muted" };
     case "saved":
-      return s.revision > 0 ? { text: "Saved", tone: "text-green-600" } : null;
+      return s.revision > 0 ? { text: "Saved", tone: "text-muted" } : null;
     case "invalid":
       return { text: s.message || "That answer can't be used", tone: "text-red-500" };
     case "stale":
@@ -267,26 +267,26 @@ export default function ReviewPage() {
 
   if (!participantId) {
     return (
-      <div className="py-12 text-center text-gray-500">
+      <div className="py-12 text-center text-muted">
         We couldn't tell who you are in this game. Open the game from the link you used to join.
       </div>
     );
   }
 
   if (loading) {
-    return <div className="py-12 text-center text-gray-500">Loading choices…</div>;
+    return <div className="py-12 text-center text-muted">Loading choices…</div>;
   }
 
   if (loadError && rounds.length === 0) {
     return (
       <div className="py-12 text-center space-y-4">
-        <p className="text-gray-500">{loadError}</p>
+        <p className="text-muted">{loadError}</p>
         <button
           onClick={() => {
             setLoading(true);
             loadData();
           }}
-          className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+          className="min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition"
         >
           Try again
         </button>
@@ -317,14 +317,14 @@ export default function ReviewPage() {
       {/* Stays at the top of the screen while scrolling through the answers */}
       {remaining !== null && (
         <div
-          className="sticky top-0 z-20 -mt-4 rounded-b-xl border-b border-x bg-white/95 dark:bg-gray-900/95 backdrop-blur px-4 py-2 shadow-sm"
+          className="sticky top-0 z-20 -mt-4 border-b border-soft bg-paper px-4 py-2"
           data-testid="review-timer"
         >
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Time left to edit</span>
+            <span className="text-sm text-muted">Time left to edit</span>
             <span
-              className={`text-xl font-mono font-bold ${
-                remaining <= 10 ? "text-red-500" : "text-gray-700 dark:text-gray-300"
+              className={`text-[28px] tabular-nums ${
+                remaining <= 10 ? "text-red-500" : "text-accent"
               }`}
               aria-label={`${Math.ceil(remaining)} seconds left`}
             >
@@ -332,11 +332,11 @@ export default function ReviewPage() {
             </span>
           </div>
           <div
-            className="mt-1 w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1"
+            className="mt-1 w-full bg-soft h-[3px]"
             aria-hidden="true"
           >
             <div
-              className={`h-1 rounded-full ${remaining <= 10 ? "bg-red-500" : "bg-purple-400"}`}
+              className={`h-[3px] ${remaining <= 10 ? "bg-red-500" : "bg-accent"}`}
               style={{
                 width: `${Math.min(100, (remaining / (phase?.duration_seconds || 60)) * 100)}%`,
               }}
@@ -345,9 +345,9 @@ export default function ReviewPage() {
         </div>
       )}
 
-      <div className="text-center space-y-2">
-        <h1 className="text-2xl font-bold">Review Answer Choices</h1>
-        <p className="text-gray-500">
+      <div className="space-y-2">
+        <h1 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">Review answer choices</h1>
+        <p className="text-muted">
           Check the AI-generated wrong answers. Change any that don't look right — your
           edits save automatically. When time runs out, the game uses what's saved.
         </p>
@@ -362,13 +362,13 @@ export default function ReviewPage() {
       {rounds.map((round) => (
         <div
           key={round.round_id}
-          className="border rounded-xl p-6 space-y-4 bg-white dark:bg-gray-900"
+          className="border border-line rounded-md p-4 space-y-4 bg-surface"
         >
-          <div className="flex items-center gap-2">
-            <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded-full">
+          <div className="flex items-baseline gap-3">
+            <span className="text-xs tracking-[0.14em] text-accent shrink-0">
               Q{round.round_number}
             </span>
-            <h3 className="font-medium">{round.question_text}</h3>
+            <h3 className="font-serif text-[22px] leading-tight font-normal">{round.question_text}</h3>
           </div>
 
           <div className="space-y-2">
@@ -383,19 +383,19 @@ export default function ReviewPage() {
               return (
                 <div
                   key={choice.id}
-                  className={`px-4 py-3 rounded-lg border ${
+                  className={`rounded-md ${
                     choice.is_correct
-                      ? "border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-800"
+                      ? "border border-accent px-4 py-3"
                       : st?.status === "invalid" || st?.status === "error" || st?.status === "stale"
-                      ? "border-red-300 dark:border-red-800"
-                      : "border-gray-200 dark:border-gray-700"
+                      ? "border border-red-300 dark:border-red-800 p-2"
+                      : ""
                   }`}
                 >
                   {choice.is_correct ? (
                     <div className="flex items-center justify-between">
                       <span className="text-sm">{choice.text}</span>
-                      <span className="text-xs text-green-600 font-medium ml-2">
-                        ✓ Your answer
+                      <span className="text-xs text-accent ml-2 shrink-0">
+                        Your answer
                       </span>
                     </div>
                   ) : (
@@ -416,19 +416,19 @@ export default function ReviewPage() {
                             }
                           }}
                           disabled={isRegenerating}
-                          className="flex-1 min-w-0 px-3 py-1.5 border rounded bg-white dark:bg-gray-800 text-sm leading-snug resize-none overflow-hidden break-words disabled:opacity-60"
+                          className="flex-1 min-w-0 px-3 py-2.5 border border-soft rounded-md bg-surface text-ink text-base leading-snug resize-none overflow-hidden break-words disabled:opacity-60"
                         />
                         <button
                           onClick={() => handleRegenerate(choice)}
                           disabled={regenDisabled}
-                          className="text-xs px-2 py-1.5 rounded border text-gray-600 dark:text-gray-300 hover:text-purple-600 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                          className="text-sm px-3 min-h-[44px] rounded-md border border-line text-ink hover:text-accent disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                           title={
                             used >= MAX_REGENERATIONS
                               ? "Limit of 3 AI regenerations per answer"
                               : `Get a new AI suggestion (${MAX_REGENERATIONS - used} left)`
                           }
                         >
-                          {isRegenerating ? "…" : "🔄 New"}
+                          {isRegenerating ? "…" : "New"}
                         </button>
                       </div>
                       <p
@@ -449,7 +449,7 @@ export default function ReviewPage() {
       <button
         onClick={handleConfirm}
         disabled={confirmDisabled}
-        className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 text-lg font-medium"
+        className="w-full min-h-[56px] px-6 bg-btn text-btn-text rounded-md font-medium hover:opacity-90 transition disabled:opacity-50 text-lg font-medium"
       >
         {confirmLabel}
       </button>
