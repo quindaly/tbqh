@@ -4,44 +4,128 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createHWDYKGame, joinHWDYKGame } from "@/lib/api";
 
-export default function HowWellDoYouKnowPage() {
+const NAME_KEY = "tbqh-display-name";
+const QUESTION_CHOICES = [3, 5, 7, 10];
+
+type Screen = "start" | "name" | "style" | "length" | "join";
+type Style = "default" | "party";
+
+const STYLES: { id: Style; title: string; blurb: string; tag?: string }[] = [
+  {
+    id: "default",
+    title: "We write the wrong answers",
+    blurb: "AI makes the other choices. Nothing for your friends to do but guess.",
+    tag: "Easiest",
+  },
+  {
+    id: "party",
+    title: "Friends write the wrong answers",
+    blurb: "Everyone invents a fake answer first. Sneakier and funnier.",
+  },
+];
+
+function minutesFor(n: number) {
+  return Math.round(n * 0.8 + 2);
+}
+
+function readName() {
+  try {
+    return localStorage.getItem(NAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    /* private mode: fine */
+  }
+}
+
+export default function HotSeatStartPage() {
   return (
     <Suspense fallback={<div className="py-12 text-center text-muted">Loading…</div>}>
-      <HowWellDoYouKnowContent />
+      <HotSeatStart />
     </Suspense>
   );
 }
 
-function HowWellDoYouKnowContent() {
+function Heading({ children }: { children: React.ReactNode }) {
+  return (
+    <h1 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">
+      {children}
+    </h1>
+  );
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <span className="text-xs tracking-[0.14em] uppercase text-muted">{children}</span>;
+}
+
+function PrimaryButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className="w-full px-6 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] text-[17px] font-medium"
+    />
+  );
+}
+
+function BackLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="text-sm text-muted hover:underline self-start">
+      ← Back
+    </button>
+  );
+}
+
+function HotSeatStart() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
+  const [screen, setScreen] = useState<Screen>("start");
   const [displayName, setDisplayName] = useState("");
   const [joinCode, setJoinCode] = useState("");
-  const [gameMode, setGameMode] = useState<"default" | "party">("default");
+  const [style, setStyle] = useState<Style>("default");
   const [numQuestions, setNumQuestions] = useState(5);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Auto-switch to join mode if ?code= is present
+  useEffect(() => {
+    setDisplayName(readName());
+  }, []);
+
+  // A shared link (?code=ABC123) goes straight to joining.
   useEffect(() => {
     const code = searchParams.get("code");
     if (code) {
       setJoinCode(code.toUpperCase());
-      setMode("join");
+      setScreen("join");
     }
   }, [searchParams]);
 
-  async function handleCreate() {
+  function go(next: Screen) {
+    setError("");
+    setScreen(next);
+  }
+
+  function continueFromName(next: Screen) {
     if (!displayName.trim()) {
-      setError("Enter a display name");
+      setError("Enter your name so friends know who you are");
       return;
     }
+    go(next);
+  }
+
+  async function handleCreate() {
     setLoading(true);
     setError("");
     try {
-      const res = await createHWDYKGame(displayName.trim(), gameMode, numQuestions);
+      const name = displayName.trim();
+      saveName(name);
+      const res = await createHWDYKGame(name, style, numQuestions);
       localStorage.setItem(`game_pid_${res.experience_instance_id}`, res.participant_id);
       router.push(`/games/experience/${res.experience_instance_id}/hwdyk-lobby`);
     } catch (e: any) {
@@ -53,13 +137,15 @@ function HowWellDoYouKnowContent() {
 
   async function handleJoin() {
     if (!displayName.trim() || !joinCode.trim()) {
-      setError("Enter a display name and join code");
+      setError("Enter your name and the join code");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      const res = await joinHWDYKGame(joinCode.trim().toUpperCase(), displayName.trim());
+      const name = displayName.trim();
+      saveName(name);
+      const res = await joinHWDYKGame(joinCode.trim().toUpperCase(), name);
       localStorage.setItem(`game_pid_${res.experience_instance_id}`, res.participant_id);
       router.push(`/games/experience/${res.experience_instance_id}/hwdyk-lobby`);
     } catch (e: any) {
@@ -69,156 +155,181 @@ function HowWellDoYouKnowContent() {
     }
   }
 
-  if (mode === "choose") {
+  const errorLine = error ? <p className="text-red-500 text-sm">{error}</p> : null;
+
+  if (screen === "start") {
     return (
-      <div className="space-y-8 py-12 text-center">
-        <h1 className="text-3xl font-bold">The Hot Seat</h1>
-        <p className="text-muted">
-          One person answers personal questions. Everyone else guesses the correct answer.
-        </p>
-        <div className="flex flex-col gap-4 items-center">
+      <div className="max-w-md mx-auto flex flex-col gap-8 py-10">
+        <div className="flex flex-col gap-3">
+          <Heading>The Hot Seat</Heading>
+          <p className="text-muted">
+            One person sits in the hot seat and answers questions about themselves. Everyone else
+            guesses what they said.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <PrimaryButton onClick={() => go("name")}>Start a game</PrimaryButton>
           <button
-            onClick={() => setMode("create")}
-            className="w-64 px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition font-medium"
+            onClick={() => go("join")}
+            className="w-full px-6 border border-line rounded-md hover:bg-soft transition min-h-[56px] text-[17px]"
           >
-            Create Game
-          </button>
-          <button
-            onClick={() => setMode("join")}
-            className="w-64 px-6 py-3 border border-line rounded-md hover:bg-soft transition"
-          >
-            Join Game
+            Join with a code
           </button>
         </div>
         <a href="/games" className="text-sm text-muted hover:underline">
-          ← Back to games
+          ← All games
         </a>
       </div>
     );
   }
 
-  if (mode === "create") {
+  if (screen === "name") {
     return (
-      <div className="max-w-md mx-auto space-y-6 py-12">
-        <h1 className="text-2xl font-bold text-center">Create Game</h1>
-
-        <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="Your display name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full px-4 py-3 border rounded-md bg-surface"
-          />
-
-          {/* Game Mode */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Game Mode</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setGameMode("default")}
-                className={`px-4 py-3 rounded-lg border text-sm transition ${
-                  gameMode === "default"
-                    ? "border-accent bg-selected text-accent"
-                    : "border-line hover:bg-soft"
-                }`}
-              >
-                <div className="font-medium">Default</div>
-                <div className="text-xs text-muted mt-1">AI generates wrong answers</div>
-              </button>
-              <button
-                onClick={() => setGameMode("party")}
-                className={`px-4 py-3 rounded-lg border text-sm transition ${
-                  gameMode === "party"
-                    ? "border-accent bg-selected text-accent"
-                    : "border-line hover:bg-soft"
-                }`}
-              >
-                <div className="font-medium">Party</div>
-                <div className="text-xs text-muted mt-1">Players write fake answers</div>
-              </button>
-            </div>
-          </div>
-
-          {/* Number of Questions */}
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Questions: {numQuestions}
-            </label>
-            <input
-              type="range"
-              min={3}
-              max={10}
-              value={numQuestions}
-              onChange={(e) => setNumQuestions(Number(e.target.value))}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted">
-              <span>3</span>
-              <span>10</span>
-            </div>
-          </div>
-
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-
-          <button
-            onClick={handleCreate}
-            disabled={loading}
-            className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
-          >
-            {loading ? "Creating…" : "Create Game"}
-          </button>
-
-          <button
-            onClick={() => { setMode("choose"); setError(""); }}
-            className="w-full text-sm text-muted hover:underline"
-          >
-            ← Back
-          </button>
+      <form
+        className="max-w-md mx-auto flex flex-col gap-6 py-10"
+        onSubmit={(e) => {
+          e.preventDefault();
+          continueFromName("style");
+        }}
+      >
+        <BackLink onClick={() => go("start")} />
+        <div className="flex flex-col gap-2">
+          <Eyebrow>Step 1 of 3</Eyebrow>
+          <Heading>What should we call you?</Heading>
         </div>
+        <input
+          type="text"
+          autoFocus
+          autoComplete="given-name"
+          aria-label="Your name"
+          placeholder="Your name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface text-[17px]"
+          maxLength={40}
+        />
+        {errorLine}
+        <PrimaryButton type="submit">Continue</PrimaryButton>
+      </form>
+    );
+  }
+
+  if (screen === "style") {
+    return (
+      <div className="max-w-md mx-auto flex flex-col gap-6 py-10">
+        <BackLink onClick={() => go("name")} />
+        <div className="flex flex-col gap-2">
+          <Eyebrow>Step 2 of 3</Eyebrow>
+          <Heading>How should the wrong answers work?</Heading>
+        </div>
+        <div className="flex flex-col gap-3" role="radiogroup" aria-label="Wrong answers">
+          {STYLES.map((s) => {
+            const on = style === s.id;
+            return (
+              <button
+                key={s.id}
+                role="radio"
+                aria-checked={on}
+                onClick={() => setStyle(s.id)}
+                className={`text-left rounded-md p-4 min-h-[56px] transition ${
+                  on ? "border-2 border-accent bg-selected" : "border border-soft bg-surface hover:bg-soft"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-serif text-[22px] leading-[1.2]">{s.title}</span>
+                  {s.tag && <span className="text-xs text-accent whitespace-nowrap">{s.tag}</span>}
+                </div>
+                <p className="text-sm text-muted mt-1">{s.blurb}</p>
+              </button>
+            );
+          })}
+        </div>
+        <PrimaryButton onClick={() => go("length")}>Continue</PrimaryButton>
       </div>
     );
   }
 
-  // Join mode
-  return (
-    <div className="max-w-md mx-auto space-y-6 py-12">
-      <h1 className="text-2xl font-bold text-center">Join Game</h1>
+  if (screen === "length") {
+    const mins = minutesFor(numQuestions);
+    return (
+      <div className="max-w-md mx-auto flex flex-col gap-6 py-10">
+        <BackLink onClick={() => go("style")} />
+        <div className="flex flex-col gap-2">
+          <Eyebrow>Step 3 of 3</Eyebrow>
+          <Heading>How many questions?</Heading>
+        </div>
+        <div className="grid grid-cols-4 gap-3" role="radiogroup" aria-label="Number of questions">
+          {QUESTION_CHOICES.map((n) => {
+            const on = numQuestions === n;
+            return (
+              <button
+                key={n}
+                role="radio"
+                aria-checked={on}
+                onClick={() => setNumQuestions(n)}
+                className={`rounded-md min-h-[56px] font-serif text-[28px] transition ${
+                  on ? "border-2 border-accent bg-selected text-accent" : "border border-soft bg-surface hover:bg-soft"
+                }`}
+              >
+                {n}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-sm text-muted">
+          About {mins} minutes, plus time for friends to join. The person in the hot seat can skip
+          any question they would rather not answer.
+        </p>
+        <div className="border-t border-soft pt-4 text-sm text-muted flex flex-col gap-1">
+          <span>
+            Playing as <span className="text-ink">{displayName.trim()}</span>
+          </span>
+          <span>{style === "default" ? "AI writes the wrong answers" : "Friends write the wrong answers"}</span>
+        </div>
+        {errorLine}
+        <PrimaryButton onClick={handleCreate} disabled={loading}>
+          {loading ? "Creating…" : "Create game"}
+        </PrimaryButton>
+      </div>
+    );
+  }
 
-      <div className="space-y-4">
+  // Join
+  return (
+    <form
+      className="max-w-md mx-auto flex flex-col gap-6 py-10"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleJoin();
+      }}
+    >
+      <BackLink onClick={() => go("start")} />
+      <Heading>Join a game</Heading>
+      <div className="flex flex-col gap-3">
         <input
           type="text"
-          placeholder="Your display name"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          className="w-full px-4 py-3 border rounded-md bg-surface"
-        />
-        <input
-          type="text"
+          aria-label="Join code"
           placeholder="Join code"
           value={joinCode}
-          onChange={(e) => setJoinCode(e.target.value)}
-          className="w-full px-4 py-3 border rounded-md bg-surface uppercase tracking-widest text-center"
+          onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface uppercase tracking-widest text-center text-[17px]"
           maxLength={6}
         />
-
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-
-        <button
-          onClick={handleJoin}
-          disabled={loading}
-          className="w-full px-6 py-3 bg-btn text-btn-text rounded-md hover:opacity-90 transition disabled:opacity-50 min-h-[56px] font-medium"
-        >
-          {loading ? "Joining…" : "Join"}
-        </button>
-
-        <button
-          onClick={() => { setMode("choose"); setError(""); }}
-          className="w-full text-sm text-muted hover:underline"
-        >
-          ← Back
-        </button>
+        <input
+          type="text"
+          autoComplete="given-name"
+          aria-label="Your name"
+          placeholder="Your name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          className="w-full px-4 min-h-[56px] border rounded-md bg-surface text-[17px]"
+          maxLength={40}
+        />
       </div>
-    </div>
+      {errorLine}
+      <PrimaryButton type="submit" disabled={loading}>
+        {loading ? "Joining…" : "Join"}
+      </PrimaryButton>
+    </form>
   );
 }
