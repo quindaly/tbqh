@@ -19,7 +19,9 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.api.v1.dependencies import get_current_user, get_current_user_id
 from app.services.accounts import (
+    adopt_guest_name,
     get_or_create_user,
+    merge_guest_into_user,
     is_placeholder_email,
     normalize_email,
 )
@@ -86,7 +88,11 @@ def request_magic_link(
 
 
 @router.get("/callback")
-def auth_callback(token: str, db: Session = Depends(get_db)):
+def auth_callback(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user_id=Depends(get_current_user_id),
+):
     """Consume a magic-link token (once only), create or find the user, set the session cookie."""
     verified = verify_magic_link_token(token)
     if not verified or not consume_magic_link(db, verified[1]):
@@ -98,6 +104,19 @@ def auth_callback(token: str, db: Session = Depends(get_db)):
 
     email, _, next_path = verified
     user = get_or_create_user(db, email)
+
+    # If this browser was working as a guest, what they made comes with them.
+    # Needing the guest's own cookie here is the proof it is theirs to bring.
+    if current_user_id and current_user_id != user.id:
+        guest = db.get(User, current_user_id)
+        if guest is not None and is_placeholder_email(guest.email):
+            try:
+                with db.begin_nested():  # a failure undoes only the merge
+                    merge_guest_into_user(db, guest, user)
+                db.commit()
+            except Exception:
+                # Never stop someone signing in over this.
+                logger.exception("Could not merge guest %s into %s", guest.id, user.id)
 
     # Straight to the home page, or back to wherever they were when they chose
     # to sign in (the path was checked when the link was requested and is signed).
@@ -156,6 +175,7 @@ def update_me(
     elif not body.skip:
         raise HTTPException(status_code=422, detail="Enter a name or choose not now.")
     user.name_prompt_done = True
+    adopt_guest_name(db, user)
     db.commit()
     return {"ok": True, "name": user.display_name}
 
