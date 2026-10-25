@@ -13,4 +13,5 @@ def new_join_code(length: int = 6) -> str:
 
 
 def normalize_join_code(code: str) -> str:
-    return code.strip().upper()
+    """What people actually type: any case, with stray or pasted spaces."""
+    return "".join(code.split()).upper()

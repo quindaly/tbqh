@@ -7,6 +7,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from app.services.join_codes import normalize_join_code
 from app.core.config import settings
 from app.db.models.session import Session as SessionModel
 
@@ -27,4 +28,4 @@ def generate_share_url(
 
 
 def lookup_session_by_join_code(db: Session, join_code: str) -> SessionModel | None:
-    return db.query(SessionModel).filter(SessionModel.join_code == join_code).first()
+    return db.query(SessionModel).filter(SessionModel.join_code == normalize_join_code(join_code)).first()

@@ -12,6 +12,7 @@ from sqlalchemy import exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
+from app.services.join_codes import normalize_join_code
 from app.db.models.experience import ExperienceInstance
 from app.db.models.game_choice import GameChoice
 from app.db.models.game_mc_guess import GameMCGuess
@@ -249,7 +250,7 @@ def join_game(
     join_mode: str = "anonymous",
 ) -> dict:
     display_name = clean_display_name(display_name)
-    session = db.query(SessionModel).filter(SessionModel.join_code == join_code).first()
+    session = db.query(SessionModel).filter(SessionModel.join_code == normalize_join_code(join_code)).first()
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid join code"
