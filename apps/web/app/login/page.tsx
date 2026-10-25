@@ -90,7 +90,7 @@ function LoginForm() {
           role="status"
           className="rounded-md border border-soft bg-surface px-3 py-2 text-sm"
         >
-          That sign-in link has expired. Enter your email for a new one.
+          That sign-in link has expired or was already used. Enter your email for a new one.
         </p>
       )}
       <input

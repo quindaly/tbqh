@@ -15,6 +15,7 @@ from app.db.models.game_guess import GameGuess
 from app.db.models.game_scaffold import PlayerAction, ScoreSnapshot
 from app.db.models.game_choice import GameChoice
 from app.db.models.game_mc_guess import GameMCGuess
+from app.db.models.used_magic_link import UsedMagicLink
 
 __all__ = [
     "User",
@@ -37,4 +38,5 @@ __all__ = [
     "ScoreSnapshot",
     "GameChoice",
     "GameMCGuess",
+    "UsedMagicLink",
 ]

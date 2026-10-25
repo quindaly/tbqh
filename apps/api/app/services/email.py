@@ -37,7 +37,7 @@ def magic_link_message(link: str) -> tuple[str, str, str]:
     text = (
         "Tap the link below to sign in to tbqh.\n\n"
         f"{link}\n\n"
-        f"The link works for {minutes} minutes. If you did not ask for it, you can "
+        f"The link works once, for {minutes} minutes. If you did not ask for it, you can "
         "ignore this email.\n"
     )
     html = f"""\
@@ -46,7 +46,7 @@ def magic_link_message(link: str) -> tuple[str, str, str]:
     <div style="font-family:Georgia,'Times New Roman',serif;font-size:28px;margin-bottom:20px">tbqh</div>
     <p style="font-size:17px;line-height:1.5;margin:0 0 24px">Tap the button to sign in.</p>
     <a href="{link}" style="display:block;text-align:center;background:#1A1916;color:#FEFAF7;text-decoration:none;padding:16px 24px;border-radius:6px;font-size:17px">Sign in to tbqh</a>
-    <p style="font-size:14px;line-height:1.5;color:#5E5A52;margin:24px 0 0">The link works for {minutes} minutes. If you did not ask for it, you can ignore this email.</p>
+    <p style="font-size:14px;line-height:1.5;color:#5E5A52;margin:24px 0 0">The link works once, for {minutes} minutes. If you did not ask for it, you can ignore this email.</p>
   </div>
 </div>
 """

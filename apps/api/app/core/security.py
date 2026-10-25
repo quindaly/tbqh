@@ -15,19 +15,26 @@ _signer = URLSafeTimedSerializer(settings.COOKIE_SECRET)
 
 
 def create_magic_link_token(email: str) -> str:
-    """Create a signed token encoding the user email."""
-    return _signer.dumps(email, salt="magic-link")
+    """Create a signed token for one sign-in. The random id lets the server
+    refuse a second use of the same link."""
+    return _signer.dumps({"e": email, "j": uuid.uuid4().hex}, salt="magic-link")
 
 
-def verify_magic_link_token(token: str) -> str | None:
-    """Return email if token is valid, else None."""
+def verify_magic_link_token(token: str) -> tuple[str, str] | None:
+    """Return (email, link id) if the token is genuine and unexpired, else None.
+
+    Tokens issued before links became single-use carry no id and are refused.
+    They only lived ten minutes anyway.
+    """
     try:
-        email: str = _signer.loads(
+        data = _signer.loads(
             token, salt="magic-link", max_age=settings.MAGIC_LINK_MAX_AGE
         )
-        return email
     except (BadSignature, SignatureExpired):
         return None
+    if not isinstance(data, dict) or not data.get("e") or not data.get("j"):
+        return None
+    return data["e"], data["j"]
 
 
 # --------------- session cookies ---------------
