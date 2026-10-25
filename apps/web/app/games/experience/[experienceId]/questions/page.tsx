@@ -2,7 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getGamePrompts, submitGameAnswer, getGameState } from "@/lib/api";
+import { ApiError, getGamePrompts, submitGameAnswer, getGameState } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
+import {
+  ConnectionBanner,
+  LobbyNotFound,
+  LobbyUnreachable,
+} from "../../../_components/LobbyStatus";
 
 interface Prompt {
   id: string;
@@ -21,6 +27,9 @@ export default function QuestionsPage() {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [waitingForOthers, setWaitingForOthers] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [participantId, setParticipantId] = useState<string | null>(null);
 
@@ -29,30 +38,34 @@ export default function QuestionsPage() {
   }, [experienceId]);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadFailed(false);
     getGamePrompts(experienceId)
       .then((data) => setPrompts(data.prompts))
-      .catch(() => {})
+      .catch((e: any) => {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
+          setNotFound(true);
+        } else {
+          setLoadFailed(true);
+        }
+      })
       .finally(() => setLoading(false));
-  }, [experienceId]);
+  }, [experienceId, reloadKey]);
 
   // Poll for state transition once all our answers are in
+  // Throws on failure so usePolling can back off and surface outages.
   const pollState = useCallback(async () => {
-    try {
-      const state = await getGameState(experienceId);
-      if (
-        state.game_state === "round_active" ||
-        state.game_state === "ready_to_start"
-      ) {
-        router.push(`/games/experience/${experienceId}/play`);
-      }
-    } catch {}
-  }, [experienceId, router]);
-
-  useEffect(() => {
     if (!waitingForOthers) return;
-    const interval = setInterval(pollState, 3000);
-    return () => clearInterval(interval);
-  }, [waitingForOthers, pollState]);
+    const state = await getGameState(experienceId);
+    if (
+      state.game_state === "round_active" ||
+      state.game_state === "ready_to_start"
+    ) {
+      router.push(`/games/experience/${experienceId}/play`);
+    }
+  }, [experienceId, router, waitingForOthers]);
+
+  const { failures, fatal, gaveUp, retry } = usePolling(pollState);
 
   async function handleSubmit() {
     if (!participantId || !answer.trim()) return;
@@ -83,8 +96,16 @@ export default function QuestionsPage() {
     }
   }
 
+  if (notFound || fatal) {
+    return <LobbyNotFound />;
+  }
+
   if (loading) {
     return <p className="text-center py-16 text-gray-500">Loading questions…</p>;
+  }
+
+  if (loadFailed || prompts.length === 0) {
+    return <LobbyUnreachable onRetry={() => setReloadKey((n) => n + 1)} />;
   }
 
   if (done) {
@@ -95,6 +116,11 @@ export default function QuestionsPage() {
           Waiting for other players to finish their answers…
         </p>
         <div className="animate-pulse text-purple-500 text-lg">⏳</div>
+        {failures > 0 && (
+          <div className="max-w-md mx-auto text-left">
+            <ConnectionBanner gaveUp={gaveUp} onRetry={retry} />
+          </div>
+        )}
       </div>
     );
   }
