@@ -1,4 +1,4 @@
-"""How Well Do You Know: timed preparation phases (server-authoritative clock)."""
+"""The Hot Seat: timed preparation phases (server-authoritative clock)."""
 
 import uuid
 from datetime import datetime, timedelta, timezone

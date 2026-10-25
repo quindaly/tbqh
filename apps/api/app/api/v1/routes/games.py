@@ -379,7 +379,7 @@ def replay_game(experience_id: str, db: Session = Depends(get_db)):
 
 
 # ===========================================================
-# How Well Do You Know [Person]? endpoints
+# The Hot Seat endpoints
 # ===========================================================
 
 

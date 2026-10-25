@@ -5,7 +5,7 @@ export default function Home() {
     <div className="text-center space-y-8 py-16">
       <h1 className="text-4xl font-bold">tbqh</h1>
       <p className="text-lg text-muted">
-        Personalized discussion questions for your group.
+        Let’s get to know each other.
       </p>
 
       <div className="flex flex-col gap-4 items-center pt-4">

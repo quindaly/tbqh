@@ -1,4 +1,4 @@
-"""How Well Do You Know: the 30-second guessing round and its single, safe reveal."""
+"""The Hot Seat: the 30-second guessing round and its single, safe reveal."""
 
 from datetime import timedelta
 

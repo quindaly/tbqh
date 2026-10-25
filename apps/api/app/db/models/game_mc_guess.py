@@ -1,4 +1,4 @@
-"""GameMCGuess model — stores multiple-choice guesses for How Well Do You Know rounds."""
+"""GameMCGuess model — stores multiple-choice guesses for The Hot Seat rounds."""
 
 from __future__ import annotations
 

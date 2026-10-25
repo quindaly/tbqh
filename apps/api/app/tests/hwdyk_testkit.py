@@ -1,4 +1,4 @@
-"""Helpers for building How Well Do You Know games in tests."""
+"""Helpers for building The Hot Seat games in tests."""
 
 import uuid
 from unittest.mock import patch

@@ -72,7 +72,7 @@ function HowWellDoYouKnowContent() {
   if (mode === "choose") {
     return (
       <div className="space-y-8 py-12 text-center">
-        <h1 className="text-3xl font-bold">How Well Do You Know [Person]?</h1>
+        <h1 className="text-3xl font-bold">The Hot Seat</h1>
         <p className="text-muted">
           One person answers personal questions. Everyone else guesses the correct answer.
         </p>

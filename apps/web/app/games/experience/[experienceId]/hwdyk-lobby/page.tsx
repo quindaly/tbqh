@@ -207,7 +207,7 @@ export default function HWDYKLobbyPage() {
   return (
     <div className="max-w-md mx-auto space-y-6 py-8">
       <div className="space-y-1.5">
-        <h1 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">How well do you know…?</h1>
+        <h1 className="font-serif text-[34px] leading-[1.1] tracking-[-0.01em] font-normal">The Hot Seat</h1>
         <p className="text-xs uppercase tracking-[0.14em] text-muted">
           {lobby.mode === "party" ? "Party mode" : "Default mode"}
         </p>

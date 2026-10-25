@@ -1,4 +1,4 @@
-"""Small helpers shared by the Hot Seat (How Well Do You Know) service modules."""
+"""Small helpers shared by The Hot Seat service modules."""
 
 from __future__ import annotations
 
